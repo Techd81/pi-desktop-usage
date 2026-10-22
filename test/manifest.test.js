@@ -137,7 +137,9 @@ test("the declared main entry exists and the panel assets are present", () => {
 
 test("the panel HTML follows the chrome contract", () => {
   const html = fs.readFileSync(path.join(ROOT, "views/index.html"), "utf8");
-  assert.match(html, /<meta name="pi-plugin-chrome" content="v2"/);
+  // v3 is the paint-through contract: the host keeps the window capsule and maps
+  // the empty top band into drag segments instead of stamping its own hint there.
+  assert.match(html, /<meta name="pi-plugin-chrome" content="v3"/);
   assert.match(html, /\.\/styles\.css/);
   assert.match(html, /\.\/lib\/format\.js/);
   assert.match(html, /\.\/app\.js/);

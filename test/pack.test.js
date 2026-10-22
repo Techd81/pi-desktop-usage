@@ -65,7 +65,10 @@ test("pack writes a store-only zip named after id and version", async () => {
   const outDir = await fs.mkdtemp(path.join(os.tmpdir(), "pi-desktop-usage-pack-"));
   const result = await packPlugin(ROOT, { outDir });
 
-  assert.equal(result.fileName, "io.github.techd81.pi-desktop-usage-0.1.0.piplug");
+  // Derived from the manifest: a hand-written version here fails on every bump
+  // without saying anything about the packer.
+  const manifest = JSON.parse(await fs.readFile(path.join(ROOT, "manifest.json"), "utf8"));
+  assert.equal(result.fileName, `${manifest.id}-${manifest.version}.piplug`);
   assert.match(result.shasum, /^[0-9a-f]{64}$/);
   assert.equal(result.fileCount, EXPECTED_FILES.length);
 

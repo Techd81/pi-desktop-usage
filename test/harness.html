@@ -43,13 +43,28 @@
           return date.getTime();
         })();
         const heatmapDays = Math.round((today - yearStart) / 86400000) + 1;
-        const heatmap = Array.from({ length: heatmapDays }, (_, index) => ({
-          dateMs: day(index - (heatmapDays - 1)),
-          tokens: index % 11 === 0 ? 0 : 400 + ((index * 733) % 9000),
-          cost: index % 11 === 0 ? 0 : Number((((index * 733) % 9000) * 0.00012).toFixed(6)),
-          requests: index % 11 === 0 ? 0 : 1 + (index % 3),
-          costComplete: true,
-        }));
+        const heatmap = Array.from({ length: heatmapDays }, (_, index) => {
+          const tokens = index % 11 === 0 ? 0 : 400 + ((index * 733) % 9000);
+          const split = [
+            { model: "deepseek-v4-flash", source: "cli", provider: "pi", ratio: 0.62 },
+            { model: "gpt-5.6-luna", source: "desktop", provider: "pi", ratio: 0.21 },
+            { model: "claude-sonnet-4", source: "cli", provider: "anthropic", ratio: 0.12 },
+          ];
+          return {
+            dateMs: day(index - (heatmapDays - 1)),
+            tokens,
+            cost: index % 11 === 0 ? 0 : Number((tokens * 0.00012).toFixed(6)),
+            requests: index % 11 === 0 ? 0 : 1 + (index % 3),
+            costComplete: true,
+            models: split.map((entry) => ({
+              model: entry.model,
+              source: entry.source,
+              provider: entry.provider,
+              tokens: Math.round(tokens * entry.ratio),
+            })),
+            otherTokens: tokens - split.reduce((sum, entry) => sum + Math.round(tokens * entry.ratio), 0),
+          };
+        });
 
         const usage = {
           range: "7d",

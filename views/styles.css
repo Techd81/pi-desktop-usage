@@ -29,6 +29,15 @@
   --violet: #8b6ee8;
   --teal: #4fbd91;
 
+  /* Period-over-period: the pill and the mini-trend share one hue per direction.
+     The fallback hexes are the same colours for engines without oklch. */
+  --delta-up: #007840;
+  --delta-up: oklch(0.5 0.13 155);
+  --delta-down: #c13234;
+  --delta-down: oklch(0.54 0.18 25);
+  --delta-up-wash: color-mix(in oklab, var(--delta-up) 12%, transparent);
+  --delta-down-wash: color-mix(in oklab, var(--delta-down) 12%, transparent);
+
   --bg: #f5f5f7;
   --surface: #ffffff;
   --surface-2: #f1f2f4;
@@ -96,6 +105,13 @@
   --green: #4fd48c;
   --violet: #a58ef2;
   --teal: #62cfa4;
+
+  /* Rise and fall read on their own, in both themes: a pill colour that also
+     survives as text on its own wash. */
+  --delta-up: #66d592;
+  --delta-up: oklch(0.79 0.14 155);
+  --delta-down: #ff958d;
+  --delta-down: oklch(0.78 0.13 25);
 
   --bg: #0e0f11;
   --surface: #17181b;
@@ -443,6 +459,39 @@ body {
   container-type: inline-size;
 }
 
+/* Label and the period-over-period pill share the first line of the card. */
+.metric .metric-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.metric .delta-badge {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  font-size: 11.5px;
+  font-weight: 600;
+  line-height: 1.5;
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.metric .delta-badge.is-up {
+  color: var(--delta-up);
+  background: var(--delta-up-wash);
+}
+
+.metric .delta-badge.is-down {
+  color: var(--delta-down);
+  background: var(--delta-down-wash);
+}
+
 .metric .label {
   margin: 0;
   display: flex;
@@ -769,6 +818,104 @@ button.heat-cell.is-selected {
   color: var(--muted);
 }
 
+/* Heatmap hover card: the day, its level and the model split behind the square. */
+.tooltip--heat {
+  padding: 10px 12px;
+  min-width: 248px;
+  max-width: 330px;
+}
+
+.tip-heat-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 14px;
+  font-weight: 600;
+}
+
+.tip-heat-level {
+  font-size: 11.5px;
+  font-weight: 500;
+  color: var(--muted);
+}
+
+.tip-heat-total {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 7px;
+  color: var(--muted);
+}
+
+.tip-heat-total .dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex: 0 0 auto;
+}
+
+.tip-heat-total b {
+  margin-left: auto;
+  color: var(--fg);
+  font-variant-numeric: tabular-nums;
+}
+
+.tip-heat-sub {
+  margin: 10px 0 5px;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.tip-model-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.tip-model {
+  display: grid;
+  grid-template-columns: 14px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 2px 7px;
+  font-size: 11.5px;
+}
+
+.tip-model > img.rank-logo,
+.tip-model-logo {
+  width: 14px;
+  height: 14px;
+  border-radius: 3px;
+}
+
+.tip-model-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tip-model-value {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.tip-model-bar {
+  grid-column: 1 / -1;
+  height: 4px;
+  border-radius: 999px;
+  background: var(--surface-2);
+  overflow: hidden;
+}
+
+.tip-model-bar i {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+}
+
 /* --------------------------------------------------------------- rankings */
 
 .rank-list {
@@ -926,7 +1073,24 @@ button.heat-cell.is-selected {
   grid-template-columns: 8px minmax(50px, 1fr) auto auto;
   align-items: center;
   gap: 10px;
+  width: 100%;
+  border: 0;
+  padding: 0;
+  font: inherit;
   font-size: 12.5px;
+  color: inherit;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+
+/* Toggled off: the row stays readable but stops claiming a colour or a share. */
+.slice-row.is-off {
+  color: var(--muted);
+}
+
+.slice-row.is-off .dot {
+  opacity: 0.45;
 }
 
 .slice-row .dot {

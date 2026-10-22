@@ -16,6 +16,8 @@ const RANGE_DAYS = { "7d": 7, "30d": 30, "90d": 90 };
 const HEATMAP_MAX_DAYS = 366;
 const MAX_BUCKETS = 400;
 const MAX_ROWS = 50;
+/** Models listed under one heatmap square; the rest fold into one remainder row. */
+const HEAT_MODEL_ROWS = 5;
 
 /** @param {number} ms */
 function startOfDay(ms) {
@@ -279,11 +281,28 @@ function query(records, options = {}) {
 
     if (ts >= heatmapStart && ts <= toMs) {
       const key = bucketKey(ts, "day");
-      const dayRow = heatmapByDay.get(key) ?? { tokens: 0, cost: 0, requests: 0, costMissing: 0 };
+      const dayRow = heatmapByDay.get(key) ?? {
+        tokens: 0,
+        cost: 0,
+        requests: 0,
+        costMissing: 0,
+        /** @type {Map<string, any>} */
+        models: new Map(),
+      };
       dayRow.tokens += record.totalTokens;
       dayRow.requests += record.requestCount ?? 1;
       if (typeof record.costUsd === "number") dayRow.cost += record.costUsd;
       else dayRow.costMissing += 1;
+      const dayModelKey = `${record.source}|${record.model || ""}`;
+      const dayModel = dayRow.models.get(dayModelKey) ?? {
+        model: record.model || "",
+        source: record.source,
+        provider: record.provider || "",
+        tokens: 0,
+      };
+      dayModel.tokens += record.totalTokens;
+      if (!dayModel.provider && record.provider) dayModel.provider = record.provider;
+      dayRow.models.set(dayModelKey, dayModel);
       heatmapByDay.set(key, dayRow);
     }
 
@@ -361,12 +380,17 @@ function query(records, options = {}) {
   const heatmap = [];
   for (let day = heatmapStart, guard = 0; day <= toMs && guard < HEATMAP_MAX_DAYS; day = addDays(day, 1), guard += 1) {
     const row = heatmapByDay.get(bucketKey(day, "day"));
+    // The square's tooltip names the models behind the day; only the largest few
+    // are kept per day, so a whole year of detail still fits one panel payload.
+    const ranked = row ? [...row.models.values()].sort((a, b) => b.tokens - a.tokens) : [];
     heatmap.push({
       dateMs: day,
       tokens: row?.tokens ?? 0,
       cost: row?.cost ?? 0,
       requests: row?.requests ?? 0,
       costComplete: (row?.costMissing ?? 0) === 0,
+      models: ranked.slice(0, HEAT_MODEL_ROWS),
+      otherTokens: ranked.slice(HEAT_MODEL_ROWS).reduce((sum, entry) => sum + entry.tokens, 0),
     });
   }
 

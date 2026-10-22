@@ -164,6 +164,9 @@ const OTHER_SLICE_COLOR = "color-mix(in oklab, var(--fg) 32%, transparent)";
       otherModels: "其他模型",
       heatmap: "活跃热力图",
       heatPickHint: "点任意方块查看当天用量与费用",
+      heatLevel: "等级",
+      heatModels: "模型明细",
+      heatTotal: "总用量",
       less: "少",
       more: "多",
       unassigned: "未归属",
@@ -252,6 +255,9 @@ const OTHER_SLICE_COLOR = "color-mix(in oklab, var(--fg) 32%, transparent)";
       otherModels: "Other models",
       heatmap: "Activity heatmap",
       heatPickHint: "Pick a square to see that day's tokens and cost",
+      heatLevel: "Level",
+      heatModels: "Model detail",
+      heatTotal: "Total",
       less: "Less",
       more: "More",
       unassigned: "Unassigned",
@@ -461,18 +467,36 @@ const OTHER_SLICE_COLOR = "color-mix(in oklab, var(--fg) 32%, transparent)";
   }
 
   /**
+   * Intensity of every heatmap day: 0 for no traffic, 1..4 otherwise.
+   *
+   * Buckets come from the quartiles of the active days, not from a fraction of
+   * the busiest one. A single runaway day (hundreds of millions of tokens) made
+   * every other day a thousandth of the maximum, so the whole year landed on the
+   * palest step and the map stopped telling one day from the next. Equal-count
+   * buckets keep the shape of a quiet year and a spiky one alike; when every
+   * active day carries the same weight there is no ordering to draw, so they
+   * share one real tone instead of collapsing to the floor.
+   *
    * @param {number[]} values
    * @returns {number[]} 0..4 per value
    */
   function heatLevels(values) {
-    const max = values.reduce((best, value) => (Number(value) > best ? Number(value) : best), 0);
-    return values.map((value) => {
+    const amounts = values.map((value) => {
       const amount = Number(value);
-      if (!Number.isFinite(amount) || amount <= 0 || max <= 0) return 0;
-      const ratio = amount / max;
-      if (ratio > 0.75) return 4;
-      if (ratio > 0.5) return 3;
-      if (ratio > 0.25) return 2;
+      return Number.isFinite(amount) && amount > 0 ? amount : 0;
+    });
+    const active = amounts.filter((amount) => amount > 0).sort((a, b) => a - b);
+    if (active.length === 0) return amounts.map(() => 0);
+    if (active[0] === active[active.length - 1]) return amounts.map((amount) => (amount > 0 ? 4 : 0));
+    const cut = (ratio) => active[Math.min(active.length - 1, Math.floor((active.length - 1) * ratio))];
+    const low = cut(0.25);
+    const mid = cut(0.5);
+    const high = cut(0.75);
+    return amounts.map((amount) => {
+      if (amount <= 0) return 0;
+      if (amount > high) return 4;
+      if (amount > mid) return 3;
+      if (amount > low) return 2;
       return 1;
     });
   }
@@ -932,17 +956,26 @@ const OTHER_SLICE_COLOR = "color-mix(in oklab, var(--fg) 32%, transparent)";
     return `${t(state.locale, "prevShort")} ${arrow}${Math.abs(delta.pct ?? 0).toFixed(1)}%`;
   }
 
-  function sparkline(values) {
+  /**
+   * Mini-trend of one metric card. The stroke follows the period-over-period
+   * direction so the card reads at a glance; without a baseline it keeps the
+   * theme colour.
+   *
+   * @param {number[]} values
+   * @param {"up" | "down" | ""} [tone]
+   */
+  function sparkline(values, tone) {
     const trimmed = values.slice(-24);
     const max = trimmed.reduce((best, value) => (value > best ? value : best), 0);
     const path = linePath(trimmed, 88, 24, max > 0 ? max : 1);
     if (!path) return "";
+    const color = tone === "up" ? "var(--delta-up)" : tone === "down" ? "var(--delta-down)" : "var(--accent)";
     return `
       <svg class="spark" viewBox="0 0 92 30" aria-hidden="true">
         <path class="spark-fill" d="${areaPath(trimmed, 88, 24, max > 0 ? max : 1)}" transform="translate(2,3)"
-          fill="var(--accent)" fill-opacity="0.14" stroke="none"></path>
+          fill="${color}" fill-opacity="0.14" stroke="none"></path>
         <path class="spark-line" pathLength="1" d="${path}" transform="translate(2,3)" fill="none"
-          stroke="var(--accent)" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"></path>
+          stroke="${color}" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"></path>
       </svg>`;
   }
 
@@ -1073,11 +1106,14 @@ const OTHER_SLICE_COLOR = "color-mix(in oklab, var(--fg) 32%, transparent)";
   function metricCard(options) {
     return `
       <article class="card metric">
-        <p class="label">${esc(options.label)}
-          <i class="info" title="${esc(options.hint)}">i</i>
-        </p>
+        <div class="metric-head">
+          <p class="label">${esc(options.label)}
+            <i class="info" title="${esc(options.hint)}">i</i>
+          </p>
+          ${options.badge ?? ""}
+        </div>
         <p class="value">${esc(options.value)}</p>
-        <p class="sub">${esc(options.sub)}</p>
+        ${options.sub ? `<p class="sub">${esc(options.sub)}</p>` : ""}
         ${options.spark ?? ""}
       </article>`;
   }
@@ -1093,6 +1129,46 @@ const OTHER_SLICE_COLOR = "color-mix(in oklab, var(--fg) 32%, transparent)";
     const base = input + cacheRead;
     return base > 0 ? cacheRead / base : null;
   }
+  /**
+   * Which way the pill and the mini-trend lean. A percentage needs a baseline:
+   * with an empty previous window the honest reading is "up", not "flat".
+   *
+   * @param {number} current
+   * @param {number} previous
+   * @returns {"up" | "down" | ""}
+   */
+  function deltaTone(current, previous) {
+    const now = Number(current) || 0;
+    const before = Number(previous) || 0;
+    const delta = Fmt.formatDelta(now, before);
+    if (delta.pct === null) return before <= 0 && now > 0 ? "up" : "";
+    return delta.direction === "up" ? "up" : delta.direction === "down" ? "down" : "";
+  }
+
+  /**
+   * Period-over-period pill: the arrow carries the direction, the colour repeats
+   * it, and the title spells out what is being compared.
+   *
+   * @param {number} current
+   * @param {number} previous
+   * @param {(value: number) => string} absolute Formatter for the no-baseline case
+   */
+  function deltaBadge(current, previous, absolute) {
+    const now = Number(current) || 0;
+    const before = Number(previous) || 0;
+    const delta = Fmt.formatDelta(now, before);
+    const tone = deltaTone(now, before);
+    if (!tone) return "";
+    const text =
+      delta.pct === null
+        ? `+${absolute(now)}`
+        : `${Math.abs(delta.pct).toFixed(1)}%`;
+    const arrow = tone === "up" ? "↑" : "↓";
+    const spoken = `${t(state.locale, "prevShort")} ${arrow}${text}`;
+    return `<span class="delta-badge is-${tone}" title="${esc(spoken)}" aria-label="${esc(
+      spoken,
+    )}">${arrow}${esc(text)}</span>`;
+  }
 
   function metricsHtml(usage) {
     const totals = usage.totals;
@@ -1101,6 +1177,7 @@ const OTHER_SLICE_COLOR = "color-mix(in oklab, var(--fg) 32%, transparent)";
     const costValue = costSum([totals]);
     const cacheRate = bucketCacheRate(totals);
     const shareOfTokens = (value) => (totals.tokens > 0 ? Fmt.formatPercent(value / totals.tokens) : "0%");
+    const hitRate = cacheRate === null ? "—" : Fmt.formatPercent(cacheRate);
 
     return `
       <section class="metrics">
@@ -1108,57 +1185,86 @@ const OTHER_SLICE_COLOR = "color-mix(in oklab, var(--fg) 32%, transparent)";
           label: t(state.locale, "metricCost"),
           hint: t(state.locale, "metricCostHint"),
           value: costValue,
-          sub: deltaText(totals.cost, previous.cost),
-          spark: sparkline(series.map((point) => Number(point.cost) || 0)),
+          badge: deltaBadge(totals.cost, previous.cost, Fmt.formatUsd),
+          spark: sparkline(
+            series.map((point) => Number(point.cost) || 0),
+            deltaTone(totals.cost, previous.cost),
+          ),
         })}
         ${metricCard({
           label: t(state.locale, "metricTokens"),
           hint: t(state.locale, "metricTokensHint"),
           value: Fmt.formatTokens(totals.tokens),
+          badge: deltaBadge(totals.tokens, previous.tokens, Fmt.formatTokens),
           sub: `${Fmt.formatTokensExact(totals.requests)} ${t(state.locale, "requestsTimes")}`,
-          spark: sparkline(series.map((point) => Number(point.total) || 0)),
+          spark: sparkline(
+            series.map((point) => Number(point.total) || 0),
+            deltaTone(totals.tokens, previous.tokens),
+          ),
         })}
         ${metricCard({
           label: t(state.locale, "metricInput"),
           hint: t(state.locale, "metricInputHint"),
           value: Fmt.formatTokens(totals.input),
-          sub: deltaText(totals.input, previous.input),
-          spark: sparkline(series.map((point) => Number(point.input) || 0)),
+          badge: deltaBadge(totals.input, previous.input, Fmt.formatTokens),
+          sub: `${t(state.locale, "metricCacheHit")} ${hitRate}`,
+          spark: sparkline(
+            series.map((point) => Number(point.input) || 0),
+            deltaTone(totals.input, previous.input),
+          ),
         })}
         ${metricCard({
           label: t(state.locale, "metricOutput"),
           hint: t(state.locale, "metricOutputHint"),
           value: Fmt.formatTokens(totals.output),
-          sub: deltaText(totals.output, previous.output),
-          spark: sparkline(series.map((point) => Number(point.output) || 0)),
+          badge: deltaBadge(totals.output, previous.output, Fmt.formatTokens),
+          sub: `${t(state.locale, "share")} ${shareOfTokens(totals.output)}`,
+          spark: sparkline(
+            series.map((point) => Number(point.output) || 0),
+            deltaTone(totals.output, previous.output),
+          ),
         })}
         ${metricCard({
           label: t(state.locale, "metricCacheRead"),
           hint: t(state.locale, "metricCacheReadHint"),
           value: Fmt.formatTokens(totals.cacheRead),
+          badge: deltaBadge(totals.cacheRead, previous.cacheRead, Fmt.formatTokens),
           sub: `${t(state.locale, "share")} ${shareOfTokens(totals.cacheRead)}`,
-          spark: sparkline(series.map((point) => Number(point.cacheRead) || 0)),
+          spark: sparkline(
+            series.map((point) => Number(point.cacheRead) || 0),
+            deltaTone(totals.cacheRead, previous.cacheRead),
+          ),
         })}
         ${metricCard({
           label: t(state.locale, "metricCacheWrite"),
           hint: t(state.locale, "metricCacheWriteHint"),
           value: Fmt.formatTokens(totals.cacheWrite),
+          badge: deltaBadge(totals.cacheWrite, previous.cacheWrite, Fmt.formatTokens),
           sub: `${t(state.locale, "share")} ${shareOfTokens(totals.cacheWrite)}`,
-          spark: sparkline(series.map((point) => Number(point.cacheWrite) || 0)),
+          spark: sparkline(
+            series.map((point) => Number(point.cacheWrite) || 0),
+            deltaTone(totals.cacheWrite, previous.cacheWrite),
+          ),
         })}
         ${metricCard({
           label: t(state.locale, "metricRequests"),
           hint: t(state.locale, "metricRequestsHint"),
           value: Fmt.formatTokensExact(totals.requests),
-          sub: deltaText(totals.requests, previous.requests),
-          spark: sparkline(series.map((point) => Number(point.requests) || 0)),
+          badge: deltaBadge(totals.requests, previous.requests, Fmt.formatTokensExact),
+          spark: sparkline(
+            series.map((point) => Number(point.requests) || 0),
+            deltaTone(totals.requests, previous.requests),
+          ),
         })}
         ${metricCard({
           label: t(state.locale, "metricCacheHit"),
           hint: t(state.locale, "metricCacheHitHint"),
-          value: cacheRate === null ? "—" : Fmt.formatPercent(cacheRate),
+          value: hitRate,
           sub: `${t(state.locale, "metricCacheRead")} ${Fmt.formatTokens(totals.cacheRead)}`,
-          spark: sparkline(series.map((point) => Number(bucketCacheRate(point)) || 0)),
+          spark: sparkline(
+            series.map((point) => Number(bucketCacheRate(point)) || 0),
+            "",
+          ),
         })}
       </section>`;
   }
@@ -1234,6 +1340,94 @@ const OTHER_SLICE_COLOR = "color-mix(in oklab, var(--fg) 32%, transparent)";
       <span class="heat-stat"><b>${esc(Fmt.formatTokensExact(day.requests))}</b>${esc(
         t(state.locale, "requestsTimes"),
       )}</span>`;
+  }
+
+  /** `2026-08-02`, the compact stamp the hover card carries. */
+  function dayStamp(ms) {
+    const date = new Date(Number(ms) || 0);
+    const pad = (value) => String(value).padStart(2, "0");
+    return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+  }
+
+  /** Set while the visible tooltip belongs to a heatmap square. */
+  let heatTooltipOpen = false;
+
+  /**
+   * Hover card of one heatmap square: the day, its level and the models behind
+   * it, ranked with their own share bars.
+   *
+   * @param {any} day
+   * @param {number} level 0..4 from heatLevels
+   */
+  function heatTipHtml(day, level) {
+    const total = Math.max(0, Number(day.tokens) || 0);
+    const models = Array.isArray(day.models) ? day.models : [];
+    const share = (tokens) => (total > 0 ? Math.max(0, Number(tokens) || 0) / total : 0);
+    const row = (name, tokens, ratio, color, icon) => `
+      <li class="tip-model">
+        ${icon ?? `<span class="tip-model-logo"></span>`}
+        <span class="tip-model-name" title="${esc(name)}">${esc(name)}</span>
+        <span class="tip-model-value">${esc(Fmt.formatTokens(tokens))} · ${esc(Fmt.formatPercent(ratio))}</span>
+        <span class="tip-model-bar"><i style="width:${(ratio * 100).toFixed(1)}%;background:${color}"></i></span>
+      </li>`;
+    const rows = models.map((entry) => {
+      const name = entry.model || t(state.locale, "unknownModel");
+      return row(
+        entry.provider ? `${entry.provider} · ${name}` : name,
+        entry.tokens,
+        share(entry.tokens),
+        sourceColor(entry.source),
+        sourceIcon(entry.source),
+      );
+    });
+    const rest = Math.max(0, Number(day.otherTokens) || 0);
+    if (rest > 0) rows.push(row(t(state.locale, "otherModels"), rest, share(rest), OTHER_SLICE_COLOR));
+    return `
+      <div class="tip-heat">
+        <div class="tip-heat-head">
+          <span class="tip-heat-date">${esc(dayStamp(day.dateMs))}</span>
+          <span class="tip-heat-level">${esc(t(state.locale, "heatLevel"))} ${level}</span>
+        </div>
+        <div class="tip-heat-total">
+          <span class="dot" style="background:${HEAT_COLORS[level] ?? HEAT_COLORS[0]}"></span>
+          <span>${esc(t(state.locale, "heatTotal"))}</span>
+          <b>${esc(Fmt.formatTokens(day.tokens))}</b>
+        </div>
+        ${
+          rows.length > 0
+            ? `<p class="tip-heat-sub">${esc(t(state.locale, "heatModels"))}</p>
+               <ul class="tip-model-list">${rows.join("")}</ul>`
+            : ""
+        }
+      </div>`;
+  }
+
+  /**
+   * Hover on a heatmap square swaps the shared tooltip for that day's card; a
+   * square that is no longer under the pointer takes its own tooltip away.
+   * @param {Event} rawEvent
+   */
+  function onHeatHover(rawEvent) {
+    const event = /** @type {MouseEvent} */ (rawEvent);
+    const target = event.target;
+    const cell = target instanceof Element ? target.closest("[data-action='heat-day']") : null;
+    if (!cell || !state.usage) {
+      if (heatTooltipOpen) {
+        heatTooltipOpen = false;
+        hideTooltip();
+      }
+      return;
+    }
+    const days = state.usage.heatmap ?? [];
+    const day = days.find((entry) => entry.dateMs === Number(cell.getAttribute("data-day")));
+    if (!day) return;
+    heatTooltipOpen = true;
+    showTooltip(
+      heatTipHtml(day, heatLevels(days.map((entry) => entry.tokens))[days.indexOf(day)] ?? 0),
+      event.clientX,
+      event.clientY,
+      "heat",
+    );
   }
 
   /** Pick or clear one heatmap day; the grid and the detail line update in place. */
@@ -1466,15 +1660,12 @@ const OTHER_SLICE_COLOR = "color-mix(in oklab, var(--fg) 32%, transparent)";
         const hidden = state.hidden.has(row.key);
         return `
           <li>
-            <button class="slice-row" type="button" data-action="toggle-slice" data-key="${esc(
-              row.key,
-            )}" aria-pressed="${hidden ? "false" : "true"}" style="display:grid;width:100%;border:0;background:transparent;padding:0;font:inherit;color:inherit;cursor:pointer;opacity:${
-              hidden ? 0.4 : 1
-            }">
-              <span class="dot" style="background:${row.color}"></span>
+            <button class="${hidden ? "slice-row is-off" : "slice-row"}" type="button" data-action="toggle-slice"
+              data-key="${esc(row.key)}" aria-pressed="${hidden ? "false" : "true"}">
+              <span class="dot" style="background:${hidden ? "currentColor" : row.color}"></span>
               <span class="name">${esc(row.label)}</span>
               <span class="value">${esc(format(row.value))}</span>
-              <span class="pct">${esc(Fmt.formatPercent(shareOf(row.value, total)))}</span>
+              <span class="pct">${hidden ? "—" : esc(Fmt.formatPercent(shareOf(row.value, total)))}</span>
             </button>
           </li>`;
       })
@@ -1621,9 +1812,16 @@ const OTHER_SLICE_COLOR = "color-mix(in oklab, var(--fg) 32%, transparent)";
 
   /* ----------------------------------------------------------------- paint */
 
-  function showTooltip(html, clientX, clientY) {
+  /**
+   * @param {string} html
+   * @param {number} clientX
+   * @param {number} clientY
+   * @param {string} [variant] Extra class for the box, e.g. the wide heat card
+   */
+  function showTooltip(html, clientX, clientY, variant) {
     const tooltip = document.getElementById("tooltip");
     if (!tooltip) return;
+    tooltip.className = variant ? `tooltip tooltip--${variant}` : "tooltip";
     tooltip.innerHTML = html;
     tooltip.hidden = false;
     // Measure after the content is in: the box grows with the path line, so a
@@ -1649,6 +1847,7 @@ const OTHER_SLICE_COLOR = "color-mix(in oklab, var(--fg) 32%, transparent)";
 
   function hideTooltip() {
     rankTooltipOpen = false;
+    heatTooltipOpen = false;
     const tooltip = document.getElementById("tooltip");
     if (tooltip) tooltip.hidden = true;
   }
@@ -2533,6 +2732,7 @@ const OTHER_SLICE_COLOR = "color-mix(in oklab, var(--fg) 32%, transparent)";
     const container = document.getElementById("app");
     container?.addEventListener("click", onClick);
     container?.addEventListener("mousemove", onRankHover);
+    container?.addEventListener("mouseover", onHeatHover);
     container?.addEventListener("mouseleave", hideTooltip);
     container?.addEventListener("change", onChange);
     container?.addEventListener("focusin", onFocusIn);
@@ -2633,6 +2833,7 @@ const OTHER_SLICE_COLOR = "color-mix(in oklab, var(--fg) 32%, transparent)";
     sourceRankCardHtml,
     projectRankCardHtml,
     metricsHtml,
+    heatTipHtml,
     bodyHtml,
   };
   if (typeof module === "object" && module.exports) return API;

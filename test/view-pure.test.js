@@ -45,7 +45,27 @@ test("donut segments tile the whole circumference", () => {
 
 test("heat levels spread values over five steps", () => {
   assert.deepEqual(panel.heatLevels([0, 0, 0]), [0, 0, 0]);
-  assert.deepEqual(panel.heatLevels([10, 40, 60, 80, 100]), [1, 2, 3, 4, 4]);
+  // Quartiles of the five active days, not fractions of the biggest one.
+  assert.deepEqual(panel.heatLevels([10, 40, 60, 80, 100]), [1, 1, 2, 3, 4]);
+  assert.deepEqual(panel.heatLevels([7, 7, 7]), [4, 4, 4], "nothing to rank, one real tone");
+});
+
+test("one runaway day does not flatten the rest of the year", () => {
+  // 39 ordinary days and one that is ~800x the median, the case a real user hit.
+  const values = Array.from({ length: 40 }, (_unused, index) => 1_000_000 + index * 10_000);
+  values[7] = 828_000_000;
+  const levels = panel.heatLevels(values);
+  const counts = [0, 0, 0, 0, 0];
+  for (const level of levels) counts[level] += 1;
+
+  assert.equal(levels[7], 4, "the spike keeps the darkest step");
+  assert.deepEqual(counts, [0, 10, 10, 10, 10], "the ordinary days still fill every step");
+});
+
+test("heat levels ignore blanks and junk", () => {
+  const levels = panel.heatLevels([0, Number.NaN, -5, 3, 9]);
+  assert.deepEqual(levels.slice(0, 3), [0, 0, 0]);
+  assert.deepEqual(levels.slice(3), [1, 4], "two active days rank end to end");
 });
 
 test("axis ticks stay inside the series", () => {
@@ -369,4 +389,92 @@ test("no card renders JavaScript as visible text", () => {
   const forbidden = /=>|\.reduce\(|\bconst \b|\bfunction \b/;
   const leaked = html.split("\n").filter((line) => forbidden.test(line));
   assert.deepEqual(leaked, []);
+});
+
+test("every volume card carries a direction pill and paints its mini-trend to match", () => {
+  const view = require("../views/app.js");
+  view.state.locale = "zh";
+
+  const up = view.metricsHtml(richUsage());
+  assert.equal(
+    (up.match(/class="delta-badge is-up"/g) ?? []).length,
+    7,
+    "seven volume cards rise against the previous window",
+  );
+  assert.equal((up.match(/class="delta-badge is-down"/g) ?? []).length, 0);
+  assert.ok(up.includes("var(--delta-up)"), "the sparkline repeats the direction");
+  assert.ok(up.includes("+120"), "no baseline falls back to the absolute change");
+  assert.ok(up.includes('title="较上期 ↑'), "the comparison is spelled out in the title");
+
+  const falling = richUsage();
+  falling.totals = {
+    ...falling.totals,
+    tokens: 50,
+    cost: 0.1,
+    requests: 1,
+    input: 10,
+    output: 5,
+    cacheRead: 2,
+    cacheWrite: 1,
+  };
+  falling.previous = {
+    ...falling.previous,
+    tokens: 200,
+    cost: 0.4,
+    requests: 4,
+    input: 120,
+    output: 40,
+    cacheRead: 20,
+    cacheWrite: 20,
+  };
+  const down = view.metricsHtml(falling);
+  assert.equal((down.match(/class="delta-badge is-down"/g) ?? []).length, 7, "a fall reads as a fall");
+  assert.ok(down.includes("var(--delta-down)"));
+  assert.deepEqual(unbalancedTags(down), []);
+});
+
+test("a hidden slice stops claiming a share instead of showing a dimmed one", () => {
+  const view = require("../views/app.js");
+  view.state.locale = "zh";
+  view.state.hidden.clear();
+  view.state.hidden.add("source|cli");
+
+  const html = view.bodyHtml(richUsage());
+  assert.ok(html.includes("slice-row is-off"), "the row is marked off");
+  assert.match(html, /class="pct">—</, "a hidden slice claims no percentage");
+
+  view.state.hidden.clear();
+  const restored = view.bodyHtml(richUsage());
+  assert.ok(!restored.includes("slice-row is-off"));
+});
+
+test("the heat hover card lists the day level and its models with shares", () => {
+  const view = require("../views/app.js");
+  view.state.locale = "zh";
+  const html = view.heatTipHtml(
+    {
+      dateMs: new Date(2026, 7, 2).getTime(),
+      tokens: 1000,
+      cost: 1,
+      requests: 4,
+      costComplete: true,
+      models: [
+        { model: "deepseek-v4-flash", source: "cli", provider: "pi", tokens: 700 },
+        { model: "gpt-5.6", source: "desktop", provider: "pi", tokens: 200 },
+      ],
+      otherTokens: 100,
+    },
+    2,
+  );
+
+  assert.ok(html.includes("2026-08-02"), "the card names the day");
+  assert.ok(html.includes("等级 2"));
+  assert.ok(html.includes("pi · deepseek-v4-flash"));
+  assert.ok(html.includes("70%"), "each row carries its share of the day");
+  assert.ok(html.includes("其他模型"), "the tail folds into one row");
+  assert.equal((html.match(/tip-model-bar/g) ?? []).length, 3, "one bar per row");
+  assert.deepEqual(unbalancedTags(html), []);
+
+  const quiet = view.heatTipHtml({ dateMs: Date.now(), tokens: 0, cost: 0, requests: 0, models: [] }, 0);
+  assert.ok(!quiet.includes("模型明细"), "an empty day has no model block");
 });

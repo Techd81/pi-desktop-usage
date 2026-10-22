@@ -127,6 +127,31 @@ test("heatmap covers the current year to date", () => {
   assert.equal(result.heatmap[0].requests, 0, "a quiet day stays at zero");
 });
 
+test("a heatmap day carries the models behind it, largest first", () => {
+  const many = [
+    makeRecord(at(0, 9), { entryId: "big-1", model: "big", inputTokens: 500 }),
+    makeRecord(at(0, 10), { entryId: "big-2", model: "big", inputTokens: 500 }),
+    makeRecord(at(0, 11), { entryId: "mid", model: "mid", inputTokens: 300 }),
+    makeRecord(at(0, 12), { entryId: "third", model: "third", inputTokens: 200 }),
+    makeRecord(at(0, 13), { entryId: "t4", model: "t4", inputTokens: 100 }),
+    makeRecord(at(0, 14), { entryId: "t5", model: "t5", inputTokens: 50 }),
+    makeRecord(at(0, 15), { entryId: "t6", model: "t6", inputTokens: 10 }),
+  ];
+  const result = query(many, { range: "7d", nowMs: NOW });
+  const day = result.heatmap[result.heatmap.length - 1];
+
+  assert.equal(day.models.length, 5, "five rows per square, the rest fold into a remainder");
+  assert.equal(day.models[0].model, "big", "largest model first");
+  assert.equal(day.models[0].tokens, 1020);
+  assert.equal(day.otherTokens, 20, "the tail is kept, not dropped");
+  assert.equal(
+    day.models.reduce((sum, row) => sum + row.tokens, 0) + day.otherTokens,
+    day.tokens,
+    "rows and remainder add up to the day",
+  );
+  assert.deepEqual(result.heatmap[0].models, [], "a quiet day lists nothing");
+});
+
 test("an empty dataset still returns usable zeroed buckets", () => {
   const result = query([], { range: "7d", nowMs: NOW });
   assert.equal(result.series.length, 7);

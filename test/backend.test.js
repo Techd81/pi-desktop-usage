@@ -6,6 +6,7 @@ const test = require("node:test");
 
 const { createBackend } = require("../src/backend.js");
 const { makeTempDir, copyFixture } = require("./helpers.js");
+const manifest = require("../manifest.json");
 
 const SESSION_ID = "22222222-2222-4222-8222-222222222222";
 const NOW = () => Date.now();
@@ -69,7 +70,7 @@ test("hello reports both roots, availability and default preferences", async () 
   const hello = await backend.invoke("usage.hello", {});
 
   assert.equal(hello.ok, true);
-  assert.equal(hello.version, "0.1.0");
+  assert.equal(hello.version, manifest.version, "hello reports the version it was packed with");
   assert.equal(hello.availability.cli, true);
   assert.equal(hello.availability.desktop, true);
   assert.deepEqual(hello.prefs, { range: "7d", sources: [], accent: "blue", theme: "system", fromMs: 0, toMs: 0 });
