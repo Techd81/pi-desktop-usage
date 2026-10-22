@@ -1,0 +1,13 @@
+node_modules/
+dist/
+coverage/
+*.log
+.DS_Store
+Thumbs.db
+.pi/
+.pi-desktop/
+*.piplug.tmp
+.tmp-shot/
+.vscode/
+.idea/
+*.piplug

@@ -1,0 +1,56 @@
+{
+  "schemaVersion": 1,
+  "id": "io.github.techd81.pi-desktop-usage",
+  "name": "Usage Statistics",
+  "version": "0.1.0",
+  "description": "Token usage and cost for PI-Desktop and the Pi CLI in one local panel, with the two sources kept apart.",
+  "author": "Techd81",
+  "license": "MIT",
+  "homepage": "https://github.com/Techd81/pi-desktop-usage",
+  "icon": "views/assets/icon.png",
+  "main": "main.js",
+  "engines": {
+    "piDesktop": ">=0.20.1"
+  },
+  "activationEvents": ["onStartup"],
+  "permissions": ["ui.view", "ui.panel", "keyboard.globalShortcut", "desktop.control"],
+  "categories": ["productivity", "developer-tools"],
+  "keywords": ["usage", "tokens", "cost", "statistics", "dashboard", "local"],
+  "ui": {
+    "title": {
+      "en": "Usage",
+      "zh-CN": "用量统计"
+    },
+    "panel": "views/index.html",
+    "width": 1180,
+    "height": 860,
+    "resizable": true
+  },
+  "contributes": {
+    "views": [
+      {
+        "id": "usage",
+        "title": {
+          "en": "Usage",
+          "zh-CN": "用量统计"
+        },
+        "icon": "target",
+        "entry": "views/index.html",
+        "order": 55
+      }
+    ]
+  },
+  "i18n": {
+    "en": {
+      "name": "Usage Statistics",
+      "description": "Token usage and cost for PI-Desktop and the Pi CLI in one local panel, with the two sources kept apart.",
+      "safetyNotes": "Reads the two local session directories with Node's own filesystem API (~/.pi-desktop/sessions and ~/.pi/agent/sessions) and keeps its cache inside its own plugin data directory. desktop.control is declared for three read-only catalogue operations only (providers/list, session/list, project/list) so provider names and project paths can be shown; no session, agent or project write operation is ever called, and every enrichment failure degrades to placeholders instead of affecting the counts. No network access, no telemetry, no clipboard, no shell."
+    },
+    "zh-CN": {
+      "name": "用量统计",
+      "description": "在同一个本地面板里查看 PI-Desktop 与 Pi CLI 的 token 用量与费用，两侧来源分开统计。",
+      "safetyNotes": "用 Node 自带的文件接口只读两个本地会话目录（~/.pi-desktop/sessions 与 ~/.pi/agent/sessions），缓存只写本插件自己的数据目录。声明 desktop.control 只为三个只读目录操作（providers/list、session/list、project/list），用于显示供应商名称与项目路径；绝不调用任何会话、Agent 或项目写入操作，富化失败只会退化成占位显示，不影响统计数字。无网络访问、无遥测、不读写剪贴板、不调用 shell。"
+    }
+  },
+  "safetyNotes": "Reads two local session directories read-only and caches derived numbers in its own plugin data directory. desktop.control is used only for providers/list, session/list and project/list; nothing is written back to the host, nothing leaves the machine."
+}
