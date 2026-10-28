@@ -11,6 +11,7 @@
  */
 
 const { projectNameOf } = require("./normalize.js");
+const { mergePricing, createResolver, estimateCost } = require("./pricing.js");
 
 const RANGE_DAYS = { "7d": 7, "30d": 30, "90d": 90 };
 const HEATMAP_MAX_DAYS = 366;
@@ -111,6 +112,7 @@ function emptyTotals() {
     requests: 0,
     cost: 0,
     costMissing: 0,
+    costEstimated: 0,
     costComplete: true,
   };
 }
@@ -118,17 +120,20 @@ function emptyTotals() {
 /**
  * @param {ReturnType<typeof emptyTotals>} totals
  * @param {import("./normalize.js").UsageRecord} record
+ * @param {{ cost: number | null, estimated: boolean }} priced
  */
-function accumulate(totals, record) {
+function accumulate(totals, record, priced) {
   totals.tokens += record.totalTokens;
   totals.input += record.inputTokens;
   totals.output += record.outputTokens;
   totals.cacheRead += record.cacheReadTokens;
   totals.cacheWrite += record.cacheWriteTokens;
   totals.requests += record.requestCount ?? 1;
-  if (typeof record.costUsd === "number") totals.cost += record.costUsd;
-  else totals.costMissing += 1;
-  totals.costComplete = totals.costMissing === 0;
+  if (priced.cost !== null) {
+    totals.cost += priced.cost;
+    if (priced.estimated) totals.costEstimated += 1;
+  } else totals.costMissing += 1;
+  totals.costComplete = totals.costMissing === 0 && totals.costEstimated === 0;
 }
 
 /**
@@ -227,6 +232,7 @@ function resolveCustomWindow(fromMs, toMs) {
  *   nowMs?: number,
  *   fromMs?: number,
  *   toMs?: number,
+ *   pricing?: Record<string, any>,
  * }} options
  */
 function query(records, options = {}) {
@@ -236,6 +242,39 @@ function query(records, options = {}) {
     Array.isArray(options.sources) && options.sources.length > 0 ? new Set(options.sources) : null;
 
   const relevant = sourceFilter ? records.filter((record) => sourceFilter.has(record.source)) : records;
+
+  // A price table only fills what the sessions did not record: a recorded price
+  // always wins, so editing the table can never rewrite history.
+  // Built-in list prices first, the user's own rates on top of them.
+  const pricingTable = mergePricing(options.pricing);
+  const pricingModelCount = Object.keys(pricingTable).length;
+  const resolve = createResolver(pricingTable);
+
+  /**
+   * @param {import("./normalize.js").UsageRecord} record
+   * @returns {{ cost: number | null, estimated: boolean }}
+   */
+  const priceOf = (record) => {
+    if (typeof record.costUsd === "number") return { cost: record.costUsd, estimated: false };
+    if (pricingModelCount === 0) return { cost: null, estimated: false };
+    const cost = estimateCost(resolve(record.model), record);
+    return cost === null ? { cost: null, estimated: false } : { cost, estimated: true };
+  };
+
+  /**
+   * Fold one record's cost into a bucket, keeping "priced by the table" apart
+   * from "priced by the provider" so the row still shows the approximate mark.
+   *
+   * @param {any} bucket
+   * @param {{ cost: number | null, estimated: boolean }} priced
+   */
+  const addCost = (bucket, priced) => {
+    if (priced.cost !== null) {
+      bucket.cost += priced.cost;
+      if (priced.estimated) bucket.costEstimated = (bucket.costEstimated ?? 0) + 1;
+    } else bucket.costMissing += 1;
+    bucket.costComplete = bucket.costMissing === 0 && (bucket.costEstimated ?? 0) === 0;
+  };
 
   let earliestMs = 0;
   for (const record of relevant) {
@@ -259,6 +298,9 @@ function query(records, options = {}) {
     cacheRead: 0,
     cacheWrite: 0,
     cost: 0,
+    costMissing: 0,
+    costEstimated: 0,
+    costComplete: true,
     requests: 0,
   }));
   const indexByKey = new Map(buckets.map((entry, index) => [entry.key, index]));
@@ -278,6 +320,7 @@ function query(records, options = {}) {
 
   for (const record of relevant) {
     const ts = record.timestampMs;
+    const priced = priceOf(record);
 
     if (ts >= heatmapStart && ts <= toMs) {
       const key = bucketKey(ts, "day");
@@ -286,13 +329,16 @@ function query(records, options = {}) {
         cost: 0,
         requests: 0,
         costMissing: 0,
+        costEstimated: 0,
         /** @type {Map<string, any>} */
         models: new Map(),
       };
       dayRow.tokens += record.totalTokens;
       dayRow.requests += record.requestCount ?? 1;
-      if (typeof record.costUsd === "number") dayRow.cost += record.costUsd;
-      else dayRow.costMissing += 1;
+      if (priced.cost !== null) {
+        dayRow.cost += priced.cost;
+        if (priced.estimated) dayRow.costEstimated += 1;
+      } else dayRow.costMissing += 1;
       const dayModelKey = `${record.source}|${record.model || ""}`;
       const dayModel = dayRow.models.get(dayModelKey) ?? {
         model: record.model || "",
@@ -307,7 +353,7 @@ function query(records, options = {}) {
     }
 
     if (ts >= fromMs && ts <= toMs) {
-      accumulate(totals, record);
+      accumulate(totals, record, priced);
 
       const index = indexByKey.get(bucketKey(ts, bucket));
       if (index !== undefined) {
@@ -318,7 +364,7 @@ function query(records, options = {}) {
         point.cacheRead += record.cacheReadTokens;
         point.cacheWrite += record.cacheWriteTokens;
         point.requests += record.requestCount ?? 1;
-        if (typeof record.costUsd === "number") point.cost += record.costUsd;
+        addCost(point, priced);
       }
 
       const sourceRow = bySource.get(record.source) ?? {
@@ -327,13 +373,12 @@ function query(records, options = {}) {
         cost: 0,
         requests: 0,
         costMissing: 0,
+        costEstimated: 0,
         costComplete: true,
       };
       sourceRow.tokens += record.totalTokens;
       sourceRow.requests += record.requestCount ?? 1;
-      if (typeof record.costUsd === "number") sourceRow.cost += record.costUsd;
-      else sourceRow.costMissing += 1;
-      sourceRow.costComplete = sourceRow.costMissing === 0;
+      addCost(sourceRow, priced);
       bySource.set(record.source, sourceRow);
 
       const modelKey = `${record.source}|${record.model || ""}`;
@@ -345,14 +390,13 @@ function query(records, options = {}) {
         cost: 0,
         requests: 0,
         costMissing: 0,
+        costEstimated: 0,
         costComplete: true,
       };
       modelRow.tokens += record.totalTokens;
       modelRow.requests += record.requestCount ?? 1;
-      if (typeof record.costUsd === "number") modelRow.cost += record.costUsd;
-      else modelRow.costMissing += 1;
       if (!modelRow.provider && record.provider) modelRow.provider = record.provider;
-      modelRow.costComplete = modelRow.costMissing === 0;
+      addCost(modelRow, priced);
       byModel.set(modelKey, modelRow);
 
       const projectKey = `${record.source}|${record.projectPath ?? ""}`;
@@ -364,16 +408,15 @@ function query(records, options = {}) {
         cost: 0,
         requests: 0,
         costMissing: 0,
+        costEstimated: 0,
         costComplete: true,
       };
       projectRow.tokens += record.totalTokens;
       projectRow.requests += record.requestCount ?? 1;
-      if (typeof record.costUsd === "number") projectRow.cost += record.costUsd;
-      else projectRow.costMissing += 1;
-      projectRow.costComplete = projectRow.costMissing === 0;
+      addCost(projectRow, priced);
       byProject.set(projectKey, projectRow);
     } else if (previousFromMs > 0 && ts >= previousFromMs && ts <= previousToMs) {
-      accumulate(previous, record);
+      accumulate(previous, record, priced);
     }
   }
 
@@ -388,7 +431,8 @@ function query(records, options = {}) {
       tokens: row?.tokens ?? 0,
       cost: row?.cost ?? 0,
       requests: row?.requests ?? 0,
-      costComplete: (row?.costMissing ?? 0) === 0,
+      costComplete: (row?.costMissing ?? 0) === 0 && (row?.costEstimated ?? 0) === 0,
+      costMissing: row?.costMissing ?? 0,
       models: ranked.slice(0, HEAT_MODEL_ROWS),
       otherTokens: ranked.slice(HEAT_MODEL_ROWS).reduce((sum, entry) => sum + entry.tokens, 0),
     });
@@ -405,6 +449,7 @@ function query(records, options = {}) {
       avgCost: row.requests > 0 ? row.cost / row.requests : 0,
       costComplete: row.costComplete,
       costMissing: row.costMissing,
+      costEstimated: row.costEstimated ?? 0,
     }))
     .sort(
       (a, b) =>
@@ -431,6 +476,7 @@ function query(records, options = {}) {
       requests: row.requests,
       costComplete: row.costComplete,
       costMissing: row.costMissing,
+      costEstimated: row.costEstimated ?? 0,
     }));
 
   return {

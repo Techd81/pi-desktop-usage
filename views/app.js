@@ -167,6 +167,21 @@ const OTHER_SLICE_COLOR = "color-mix(in oklab, var(--fg) 32%, transparent)";
       heatLevel: "等级",
       heatModels: "模型明细",
       heatTotal: "总用量",
+      pricing: "模型定价",
+      pricingHint: "内置常见模型的列表价，可以直接改；会话自带的价格永远优先，留空即沿用内置价",
+      pricingSearch: "搜索模型",
+      pricingModels: "共 {count} 个模型",
+      pricingUnit: "单位：美元 / 百万 token；留空则使用内置价目表",
+      pricingBuiltin: "内置",
+      pricingBuiltinHint: "价格取自内置价目表，参考",
+      pricingMissing: "缺价",
+      pricingMissingHint: "这个模型有记录没带价格，填好单价就会计入费用",
+      pricingClear: "清除",
+      pricingEmpty: "当前区间还没有发现模型",
+      priceInput: "输入",
+      priceOutput: "输出",
+      priceCacheRead: "缓存读",
+      priceCacheWrite: "缓存写",
       less: "少",
       more: "多",
       unassigned: "未归属",
@@ -258,6 +273,22 @@ const OTHER_SLICE_COLOR = "color-mix(in oklab, var(--fg) 32%, transparent)";
       heatLevel: "Level",
       heatModels: "Model detail",
       heatTotal: "Total",
+      pricing: "Model pricing",
+      pricingHint:
+        "Built-in list prices for common models, editable; a price recorded in the session always wins, an empty field keeps the built-in rate",
+      pricingSearch: "Search models",
+      pricingModels: "{count} models",
+      pricingUnit: "USD per million tokens; leave a field empty to use the built-in price",
+      pricingBuiltin: "built-in",
+      pricingBuiltinHint: "price from the built-in table, based on",
+      pricingMissing: "no price",
+      pricingMissingHint: "Some records carry no price; a rate here turns them into cost",
+      pricingClear: "Clear",
+      pricingEmpty: "No models in this range yet",
+      priceInput: "In",
+      priceOutput: "Out",
+      priceCacheRead: "Cache read",
+      priceCacheWrite: "Cache write",
       less: "Less",
       more: "More",
       unassigned: "Unassigned",
@@ -707,7 +738,7 @@ const OTHER_SLICE_COLOR = "color-mix(in oklab, var(--fg) 32%, transparent)";
   /** @type {any} */
   const state = {
     locale: "zh",
-    prefs: { range: "7d", sources: [], accent: "blue", theme: "system", fromMs: 0, toMs: 0 },
+    prefs: { range: "7d", sources: [], accent: "blue", theme: "system", fromMs: 0, toMs: 0, pricing: {} },
     hostAppearance: null,
     hello: null,
     usage: null,
@@ -719,6 +750,10 @@ const OTHER_SLICE_COLOR = "color-mix(in oklab, var(--fg) 32%, transparent)";
     hidden: new Set(),
     openMenu: null,
     heatDay: 0,
+    pricingOpen: false,
+    pricingDraft: {},
+    pricingFilter: "",
+    builtinPricing: {},
     draft: null,
     calendarMonth: 0,
   };
@@ -917,7 +952,7 @@ const OTHER_SLICE_COLOR = "color-mix(in oklab, var(--fg) 32%, transparent)";
   }
 
   /**
-   * @param {{ range?: string, sources?: string[], accent?: string, theme?: string, fromMs?: number, toMs?: number }} patch
+   * @param {{ range?: string, sources?: string[], accent?: string, theme?: string, fromMs?: number, toMs?: number, pricing?: Record<string, any> }} patch
    */
   async function setPrefs(patch) {
     state.prefs = { ...state.prefs, ...patch };
@@ -1092,6 +1127,13 @@ const OTHER_SLICE_COLOR = "color-mix(in oklab, var(--fg) 32%, transparent)";
               state.openMenu === "theme" ? "" : "hidden"
             }>${themeOptions}</div>
           </div>
+          <button class="icon-btn" type="button" data-action="pricing-open"
+            title="${esc(t(state.locale, "pricing"))}" aria-pressed="${state.pricingOpen ? "true" : "false"}">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M12.6 3.4H20v7.4l-8.8 8.8a1.8 1.8 0 0 1-2.6 0l-4.8-4.8a1.8 1.8 0 0 1 0-2.6z"/>
+              <circle cx="16.5" cy="6.9" r="1.15" fill="currentColor" stroke="none"/>
+            </svg>
+          </button>
           <button class="icon-btn" type="button" data-action="refresh" title="${esc(
             t(state.locale, "refresh"),
           )}" ${state.scanning ? "disabled" : ""}>
@@ -1293,7 +1335,7 @@ const OTHER_SLICE_COLOR = "color-mix(in oklab, var(--fg) 32%, transparent)";
     const cells = days
       .map((day, index) => {
         const selected = state.heatDay === day.dateMs;
-        const label = `${dayTitle(day.dateMs)} · ${Fmt.formatTokens(day.tokens)} · ${Fmt.formatUsd(day.cost)}`;
+        const label = `${dayTitle(day.dateMs)} · ${Fmt.formatTokens(day.tokens)} · ${rowCost(day)}`;
         return `<button type="button" class="heat-cell${selected ? " is-selected" : ""}" data-action="heat-day"
           data-day="${day.dateMs}" aria-pressed="${selected}" aria-label="${esc(label)}" title="${esc(label)}"
           style="background:${HEAT_COLORS[levels[index]]}"></button>`;
@@ -1651,7 +1693,9 @@ const OTHER_SLICE_COLOR = "color-mix(in oklab, var(--fg) 32%, transparent)";
    */
   function donutLegendHtml(kind, usage) {
     const rows = donutRows(kind, usage);
-    const format = (state.donutMetric[kind] ?? "tokens") === "cost" ? Fmt.formatUsd : Fmt.formatTokens;
+    // A cost slice built from estimated records keeps the "≈" the rest of the
+    // panel uses, so the legend can never read as an exact total.
+    const usesCost = (state.donutMetric[kind] ?? "tokens") === "cost";
     const total = rows
       .filter((row) => !state.hidden.has(row.key))
       .reduce((sum, row) => sum + Math.max(0, Number(row.value) || 0), 0);
@@ -1664,7 +1708,7 @@ const OTHER_SLICE_COLOR = "color-mix(in oklab, var(--fg) 32%, transparent)";
               data-key="${esc(row.key)}" aria-pressed="${hidden ? "false" : "true"}">
               <span class="dot" style="background:${hidden ? "currentColor" : row.color}"></span>
               <span class="name">${esc(row.label)}</span>
-              <span class="value">${esc(format(row.value))}</span>
+              <span class="value">${esc(usesCost ? rowCost(row) : Fmt.formatTokens(row.value))}</span>
               <span class="pct">${hidden ? "—" : esc(Fmt.formatPercent(shareOf(row.value, total)))}</span>
             </button>
           </li>`;
@@ -1758,7 +1802,10 @@ const OTHER_SLICE_COLOR = "color-mix(in oklab, var(--fg) 32%, transparent)";
   }
 
   function bodyHtml(usage) {
-    if (!usage || usage.meta?.records === 0) return emptyHtml();
+    // The dialog opens from an empty panel too: a first install has no traffic
+    // yet, but its rate card still has to be reachable.
+    const dialog = state.pricingOpen ? pricingDialogHtml(usage) : "";
+    if (!usage || usage.meta?.records === 0) return `${emptyHtml()}${dialog}`;
     return [
       metricsHtml(usage),
       heatmapHtml(usage),
@@ -1766,7 +1813,230 @@ const OTHER_SLICE_COLOR = "color-mix(in oklab, var(--fg) 32%, transparent)";
       barsCardHtml(usage),
       `<div class="grid-2">${sourceRankCardHtml(usage)}${projectRankCardHtml(usage)}</div>`,
       `<div class="grid-2">${donutCardHtml("source", usage)}${donutCardHtml("model", usage)}</div>`,
+      dialog,
     ].join("");
+  }
+
+  /* ---------------------------------------------------------------- pricing */
+
+  /**
+   * Row set of the pricing dialog: the models this window has seen (with their
+   * missing-cost counts), models the user already priced, and every model the
+   * built-in table prices — the built-in list is editable too, so it has to be
+   * visible even when this window has no traffic for it. Window models come
+   * first, everything else follows alphabetically behind the filter box.
+   */
+  function pricingRows(usage) {
+    /** @type {Map<string, { model: string, provider: string, missing: number, tokens: number, inWindow: boolean }>} */
+    const rows = new Map();
+    for (const entry of usage?.byModel ?? []) {
+      if (!entry.model) continue;
+      rows.set(entry.model, {
+        model: entry.model,
+        provider: entry.provider || "",
+        missing: Number(entry.costMissing) || 0,
+        tokens: Number(entry.tokens) || 0,
+        inWindow: true,
+      });
+    }
+    const add = (model) => {
+      if (rows.has(model)) return;
+      rows.set(model, { model, provider: "", missing: 0, tokens: 0, inWindow: false });
+    };
+    for (const model of Object.keys(state.pricingDraft)) add(model);
+    for (const model of Object.keys(state.builtinPricing ?? {})) add(model);
+    return [...rows.values()].sort(
+      (a, b) =>
+        Number(b.inWindow) - Number(a.inWindow) ||
+        b.tokens - a.tokens ||
+        (a.model < b.model ? -1 : a.model > b.model ? 1 : 0),
+    );
+  }
+
+  /**
+   * The built-in row a model inherits from: exact id first, then the longest base
+   * it extends, so a dated `gpt-4o-2024-08-06` still shows the `gpt-4o` price.
+   * This only drives the placeholder and the chip; the estimate itself is computed
+   * in the plugin process, where the same rule runs once per query.
+   *
+   * @param {string} model
+   * @returns {{ model: string, entry: any } | null}
+   */
+  function builtinPriceFor(model) {
+    const table = state.builtinPricing ?? {};
+    if (!model) return null;
+    if (table[model]) return { model, entry: table[model] };
+    const lower = model.toLowerCase();
+    let exact = null;
+    let best = null;
+    for (const [key, entry] of Object.entries(table)) {
+      const name = key.toLowerCase();
+      // The plugin process resolves ids case-insensitively; the placeholder must
+      // never disagree with the rate the estimate actually uses.
+      if (name === lower) exact = { model: key, entry };
+      const extended =
+        lower.startsWith(`${name}-`) || lower.startsWith(`${name}@`) || lower.startsWith(`${name}:`);
+      if (extended && (best === null || name.length > best.model.length)) best = { model: key, entry };
+    }
+    return exact ?? best;
+  }
+
+  function pricingDialogHtml(usage) {
+    const fields = ["input", "output", "cacheRead", "cacheWrite"];
+    const labels = {
+      input: "priceInput",
+      output: "priceOutput",
+      cacheRead: "priceCacheRead",
+      cacheWrite: "priceCacheWrite",
+    };
+    const rows = pricingRows(usage);
+    const needle = String(state.pricingFilter ?? "").trim().toLowerCase();
+    const visible =
+      needle === "" ? rows : rows.filter((row) => row.model.toLowerCase().includes(needle));
+    const head = fields
+      .map((field) => `<span class="price-col">${esc(t(state.locale, labels[field]))}</span>`)
+      .join("");
+    const list = visible
+      .map((row) => {
+        const entry = state.pricingDraft[row.model] ?? {};
+        const base = builtinPriceFor(row.model);
+        const cells = fields
+          .map(
+            (field) =>
+              `<input class="price-input" type="number" inputmode="decimal" min="0" step="0.0001"
+                 data-role="price" data-model="${esc(row.model)}" data-field="${field}"
+                 aria-label="${esc(`${row.model} ${t(state.locale, labels[field])}`)}"
+                 value="${esc(entry[field] ?? "")}"
+                 placeholder="${esc(base ? String(base.entry[field] ?? "") : "—")}">`,
+          )
+          .join("");
+        const flag =
+          row.missing > 0
+            ? `<span class="price-flag" title="${esc(t(state.locale, "pricingMissingHint"))}">${esc(
+                t(state.locale, "pricingMissing"),
+              )} ${row.missing}</span>`
+            : "";
+        const builtin = base
+          ? `<span class="price-builtin" title="${esc(
+              `${t(state.locale, "pricingBuiltinHint")} ${base.model}`,
+            )}">${esc(t(state.locale, "pricingBuiltin"))}</span>`
+          : "";
+        const overridden = fields.some((field) => String(entry[field] ?? "").trim() !== "");
+        return `
+          <li class="price-row" data-price-model="${esc(row.model)}">
+            <span class="price-name"><b>${esc(row.model)}</b>${
+              row.provider ? `<em>${esc(row.provider)}</em>` : ""
+            }${builtin}${flag}</span>
+            ${cells}
+            <button class="icon-btn price-clear" type="button" data-action="pricing-clear"
+              data-model="${esc(row.model)}" title="${esc(t(state.locale, "pricingClear"))}"
+              aria-label="${esc(t(state.locale, "pricingClear"))}"${overridden ? "" : " hidden"}>×</button>
+          </li>`;
+      })
+      .join("");
+
+    return `
+      <div class="modal-backdrop" data-action="pricing-close">
+        <section class="card pricing-modal" role="dialog" aria-modal="true"
+          aria-label="${esc(t(state.locale, "pricing"))}" data-action="pricing-panel">
+          <div class="card-head">
+            <div>
+              <h2>${esc(t(state.locale, "pricing"))}</h2>
+              <p class="hint">${esc(t(state.locale, "pricingHint"))}</p>
+            </div>
+            <button class="icon-btn" type="button" data-action="pricing-close"
+              aria-label="${esc(t(state.locale, "cancel"))}">×</button>
+          </div>
+          <div class="price-tools">
+            <input class="price-filter" type="search" data-role="pricing-filter"
+              placeholder="${esc(t(state.locale, "pricingSearch"))}"
+              aria-label="${esc(t(state.locale, "pricingSearch"))}"
+              value="${esc(state.pricingFilter ?? "")}">
+            <span class="hint" data-role="pricing-count">${esc(
+              t(state.locale, "pricingModels", { count: visible.length }),
+            )}</span>
+          </div>
+          ${
+            visible.length > 0
+              ? `<div class="price-head"><span class="price-name"></span>${head}<span></span></div>
+                 <ul class="price-list">${list}</ul>`
+              : `<p class="hint">${esc(t(state.locale, "pricingEmpty"))}</p>`
+          }
+          <div class="price-foot">
+            <span class="hint">${esc(t(state.locale, "pricingUnit"))}</span>
+            <div class="price-actions">
+              <button class="btn" type="button" data-action="pricing-close">${esc(t(state.locale, "cancel"))}</button>
+              <button class="btn primary" type="button" data-action="pricing-save">${esc(
+                t(state.locale, "confirm"),
+              )}</button>
+            </div>
+          </div>
+        </section>
+      </div>`;
+  }
+
+  /** @param {string} selector */
+  function focusInDialog(selector) {
+    if (typeof document === "undefined") return;
+    const node = document.querySelector(selector);
+    if (node instanceof HTMLElement) node.focus();
+  }
+
+  /** Hand focus back to the button that opened the dialog. */
+  function focusPricingTrigger() {
+    focusInDialog('[data-action="pricing-open"]');
+  }
+  function openPricing() {
+    state.pricingOpen = true;
+    state.pricingDraft = JSON.parse(JSON.stringify(state.prefs.pricing ?? {}));
+    state.pricingFilter = "";
+    render();
+    focusInDialog('[data-role="pricing-filter"]');
+  }
+
+  function closePricing() {
+    if (!state.pricingOpen) return;
+    state.pricingOpen = false;
+    state.pricingDraft = {};
+    state.pricingFilter = "";
+    render();
+    focusPricingTrigger();
+  }
+
+  /** Drop the user's rates for one model; the built-in row takes over again. */
+  function clearPricing(model) {
+    if (!model) return;
+    delete state.pricingDraft[model];
+    render();
+  }
+
+  /**
+   * The rates a draft row really holds: only the fields the user typed. An empty
+   * field keeps inheriting the built-in rate instead of freezing it at zero.
+   * @param {any} entry
+   */
+  function draftRates(entry) {
+    /** @type {Record<string, string>} */
+    const rates = {};
+    for (const field of ["input", "output", "cacheRead", "cacheWrite"]) {
+      const value = String(entry?.[field] ?? "").trim();
+      if (value !== "") rates[field] = value;
+    }
+    return rates;
+  }
+
+  /** Persist the draft and recompute: every estimate flows through the query. */
+  async function savePricing() {
+    const pricing = {};
+    for (const [model, entry] of Object.entries(state.pricingDraft)) {
+      const rates = draftRates(entry);
+      if (Object.keys(rates).length > 0) pricing[model] = rates;
+    }
+    state.pricingOpen = false;
+    state.pricingDraft = {};
+    state.pricingFilter = "";
+    await setPrefs({ pricing });
+    focusPricingTrigger();
   }
 
   function render() {
@@ -2107,7 +2377,7 @@ const OTHER_SLICE_COLOR = "color-mix(in oklab, var(--fg) 32%, transparent)";
       if (!point) return;
       const rows =
         metric === "cost"
-          ? [[t(state.locale, "costLabel"), Fmt.formatUsd(point.cost)]]
+          ? [[t(state.locale, "costLabel"), rowCost(point)]]
           : SERIES_KEYS.map((key, layer) => [
               t(state.locale, SERIES_LABELS[layer]),
               Fmt.formatTokens(point[key]),
@@ -2630,6 +2900,26 @@ const OTHER_SLICE_COLOR = "color-mix(in oklab, var(--fg) 32%, transparent)";
         if (key) toggleSlice(key.startsWith("model|") ? "model" : "source", key);
         return;
       }
+      if (action === "pricing-open") {
+        openPricing();
+        return;
+      }
+      if (action === "pricing-close") {
+        closePricing();
+        return;
+      }
+      if (action === "pricing-panel") {
+        // Clicks inside the dialog belong to the dialog, not to its backdrop.
+        return;
+      }
+      if (action === "pricing-save") {
+        void savePricing();
+        return;
+      }
+      if (action === "pricing-clear") {
+        clearPricing(target.getAttribute("data-model"));
+        return;
+      }
       if (action === "heat-day") {
         selectHeatDay(Number(target.getAttribute("data-day")));
         return;
@@ -2718,8 +3008,45 @@ const OTHER_SLICE_COLOR = "color-mix(in oklab, var(--fg) 32%, transparent)";
    */
   function onInput(rawEvent) {
     const target = rawEvent.target;
-    if (!(target instanceof HTMLInputElement) || target.getAttribute("data-role") !== "accent-color") return;
-    setAccent(target.value, false);
+    if (!(target instanceof HTMLInputElement)) return;
+    const role = target.getAttribute("data-role");
+    if (role === "accent-color") {
+      setAccent(target.value, false);
+      return;
+    }
+    if (role === "price") {
+      // Typing only touches the draft: re-rendering here would drop the caret.
+      const model = target.getAttribute("data-model");
+      const field = target.getAttribute("data-field");
+      if (!model || !field) return;
+      state.pricingDraft[model] = { ...(state.pricingDraft[model] ?? {}), [field]: target.value };
+      // The clear affordance follows the draft state without a repaint.
+      const row = target.closest("[data-price-model]");
+      const clear = /** @type {HTMLElement | null} */ (
+        row?.querySelector('[data-action="pricing-clear"]') ?? null
+      );
+      if (clear) {
+        clear.hidden = !Object.values(state.pricingDraft[model]).some(
+          (value) => String(value ?? "").trim() !== "",
+        );
+      }
+      return;
+    }
+    if (role === "pricing-filter") {
+      // Filter in place: the row list is 232 entries, and re-rendering would
+      // steal focus from the box the user is typing in.
+      state.pricingFilter = target.value;
+      const needle = target.value.trim().toLowerCase();
+      let shown = 0;
+      document.querySelectorAll("[data-price-model]").forEach((row) => {
+        const name = String(row.getAttribute("data-price-model") ?? "").toLowerCase();
+        const listed = needle === "" || name.includes(needle);
+        (/** @type {HTMLElement} */ (row)).hidden = !listed;
+        if (listed) shown += 1;
+      });
+      const count = document.querySelector('[data-role="pricing-count"]');
+      if (count) count.textContent = t(state.locale, "pricingModels", { count: shown });
+    }
   }
 
   /* ------------------------------------------------------------------ boot */
@@ -2738,9 +3065,13 @@ const OTHER_SLICE_COLOR = "color-mix(in oklab, var(--fg) 32%, transparent)";
     container?.addEventListener("focusin", onFocusIn);
     container?.addEventListener("input", onInput);
     document.addEventListener("keydown", (event) => {
-      // Escape is the keyboard exit every popover owes its user; without it the
-      // only way out of a menu is a click somewhere else.
-      if (event.key !== "Escape" || !state.openMenu) return;
+      // Escape closes the topmost surface first: the pricing dialog, then a menu.
+      if (event.key !== "Escape") return;
+      if (state.pricingOpen) {
+        closePricing();
+        return;
+      }
+      if (!state.openMenu) return;
       const name = state.openMenu;
       if (name === "range") state.draft = null;
       setMenu(null);
@@ -2786,7 +3117,9 @@ const OTHER_SLICE_COLOR = "color-mix(in oklab, var(--fg) 32%, transparent)";
           theme: hello.prefs.theme ?? "system",
           fromMs: hello.prefs.fromMs ?? 0,
           toMs: hello.prefs.toMs ?? 0,
+          pricing: hello.prefs.pricing ?? {},
         };
+        state.builtinPricing = hello.builtinPricing ?? {};
         applyAccent();
         applyAppearance(null);
       }
@@ -2835,6 +3168,7 @@ const OTHER_SLICE_COLOR = "color-mix(in oklab, var(--fg) 32%, transparent)";
     metricsHtml,
     heatTipHtml,
     bodyHtml,
+    draftRates,
   };
   if (typeof module === "object" && module.exports) return API;
 

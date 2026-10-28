@@ -31,6 +31,14 @@ async function readFixture(name) {
   return await fs.readFile(path.join(FIXTURES, name), "utf8");
 }
 
+let entrySeq = 0;
+
+/** @returns {number} a deterministic stand-in for a random id suffix */
+function nextEntryId() {
+  entrySeq += 1;
+  return entrySeq;
+}
+
 /**
  * Build a canonical record for aggregate tests.
  *
@@ -41,7 +49,7 @@ function makeRecord(timestampMs, overrides = {}) {
   const record = createRecord({
     source: overrides.source === "desktop" ? "desktop" : "cli",
     sessionId: overrides.sessionId ?? "session-1",
-    entryId: overrides.entryId ?? `entry-${timestampMs}-${Math.random().toString(16).slice(2)}`,
+    entryId: overrides.entryId ?? `entry-${timestampMs}-${nextEntryId()}`,
     timestampMs,
     provider: overrides.provider ?? "acme",
     model: overrides.model ?? "m1",

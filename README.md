@@ -16,6 +16,7 @@ PI-Desktop 的插件体系和 Pi CLI 是两套互不相通的数据：CLI 的插
 
 - **两个来源，分开统计**：PI-Desktop 与会话目录、Pi CLI 的会话目录各自解析，来源色标（由主题色派生的同族双色）、来源分布、按来源筛选贯穿所有卡片与表格
 - **八张指标卡**：总成本 / 总 Token / 输入 Token / 输出 / 缓存命中 / 缓存写入 / 总请求数 / 缓存命中率；右上角是相对上一周期的涨跌胶囊（上升绿、下降红，上一周期没有流量时直接给绝对差额），右下角是同区间的迷你趋势线、颜色跟随涨跌方向，中间一行是请求数、占比或缓存命中率
+- **模型定价**：内置 232 个常用模型的列表价，会话里没带价格的记录开箱就用它们补上；面板顶部的定价弹窗把**全部内置模型**列出来（顶部可搜索），直接改任意一行的输入 / 输出 / 缓存读 / 缓存写单价（美元 / 百万 token）即可覆盖——留空的字段继续用内置价，清除某一行回落到内置；列表标出哪些模型来自内置表、各有几条记录缺价
 - **使用趋势（双轴曲线）**：左轴 Token、右轴费用，五条单调三次平滑曲线（成本虚线 / 缓存创建 / 缓存命中 / 输入 / 输出），缓存命中带渐变填充，底部居中图例，标题下方显示当前窗口的起止时刻，悬停给出该点五项数值
 - **趋势（柱状图）**：Token ↔ 费用两种口径；「今天」按小时、一年以内按本地日历日、更长跨度按自然月分桶，Token 口径按输入 / 输出 / 缓存堆叠
 - **来源与项目排行**：横向进度条 + 图标 + 请求数 + 费用；项目默认列出 Token 最多的 3 项，占比按整个窗口计算（不是只占这 3 项）；CLI 会话按会话首行的 cwd 归到真实项目
@@ -41,6 +42,8 @@ PI-Desktop 的插件体系和 Pi CLI 是两套互不相通的数据：CLI 的插
 - 缓存命中率 = `缓存读 / (输入 + 缓存读)`，不含输出与缓存写
 - `aggregation: "aggregate"` 的桌面用量以聚合总额为准：展开逐条 `operations`，若子项之和不等于聚合总额，差额补记成一条记录——既不重复计数，也不静默漏计
 - 没有价格的记录仍然计入 Token，费用显示 `≈$x`（部分记录缺价）或 `—`（整行缺价）
+- 面板里的「模型定价」只补**没有记录价格**的记录：会话自带 `cost` 的一律以那份为准，定价表永远不会覆盖历史；由定价表算出的部分仍按 `≈` 显示
+- 内置价目表覆盖 232 个常用模型（Claude / GPT / Gemini / DeepSeek / Kimi / GLM / Qwen / Grok / MiniMax / Mistral / 豆包 / 混元 等），价格取自 [cc-switch](https://github.com/farion1231/cc-switch)（MIT，© 2025 Jason Young）的种子数据，单位美元 / 百万 token；列表价会变，它是估算起点而不是账单依据，面板里随时可以按模型覆盖
 - 只读会话文件里的用量字段与时间戳，**消息正文、工具输出、文件内容都不会落入插件缓存**
 - 来源图标取自官方仓库：Pi（`earendil-works/pi` README 引用的 pi.dev logo）与 PI-Desktop（`vastsa/PI-Desktop`），来源与许可见 `views/assets/README.md`
 
@@ -146,3 +149,9 @@ MIT — see [LICENSE](LICENSE).
 project marks, used only to label the data sources in the panel. They stay under
 their own licenses (MIT and LGPL-3.0) and are not covered by this repository's
 MIT grant — see [views/assets/README.md](views/assets/README.md) for provenance.
+
+`src/lib/pricing-builtin.js` carries the seeded list prices of
+[cc-switch](https://github.com/farion1231/cc-switch) (MIT, © 2025 Jason Young),
+kept as a static table so the panel prices common models offline. The header of
+that file records the provenance; list prices change, and the panel's own rate
+dialog is the authority for whatever a user actually pays.

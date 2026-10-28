@@ -1,6 +1,6 @@
 {
   "name": "pi-desktop-usage",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "private": true,
   "type": "commonjs",
   "description": "Local token usage and cost statistics for PI-Desktop and the Pi CLI, in one PI-Desktop panel.",

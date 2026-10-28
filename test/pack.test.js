@@ -48,6 +48,8 @@ const EXPECTED_FILES = [
   "src/lib/format.js",
   "src/lib/normalize.js",
   "src/lib/paths.js",
+  "src/lib/pricing-builtin.js",
+  "src/lib/pricing.js",
   "src/lib/scan.js",
   "src/lib/store.js",
   "views/app.js",

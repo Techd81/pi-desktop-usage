@@ -215,3 +215,84 @@ test("a custom window longer than a year switches to month buckets", () => {
   assert.equal(result.series.length, 34, "January 2024 through October 2026");
   assert.ok(result.series[result.series.length - 1].startMs <= toMs);
 });
+
+test("a price table fills unpriced records without touching recorded ones", () => {
+  const unpriced = makeRecord(at(0, 10), { entryId: "no-price", model: "local-model", costUsd: null });
+  const recorded = makeRecord(at(0, 11), { entryId: "priced", model: "local-model", costUsd: 0.5 });
+  const pricing = { "local-model": { input: 1, output: 2, cacheRead: 0.5, cacheWrite: 0 } };
+
+  const without = query([unpriced, recorded], { range: "today", nowMs: NOW });
+  assert.equal(without.totals.cost, 0.5, "only the recorded price is counted");
+  assert.equal(without.totals.costMissing, 1);
+  assert.equal(without.totals.costEstimated, 0);
+  assert.equal(without.totals.costComplete, false);
+
+  const withTable = query([unpriced, recorded], { range: "today", nowMs: NOW, pricing });
+  // Default test record: 100 input + 10 output → $1/M + $2/M = $0.00012.
+  const estimate = 100 * 1e-6 + 10 * 2e-6;
+  assert.ok(Math.abs(withTable.totals.cost - (0.5 + estimate)) < 1e-9);
+  assert.equal(withTable.totals.costMissing, 0, "nothing is missing once a rate exists");
+  assert.equal(withTable.totals.costEstimated, 1, "the estimate is counted apart");
+  assert.equal(withTable.totals.costComplete, false, "an estimate is never a recorded price");
+  const day = withTable.heatmap[withTable.heatmap.length - 1];
+  assert.ok(Math.abs(day.cost - (0.5 + estimate)) < 1e-9, "the heatmap day carries the same total");
+  assert.equal(day.costComplete, false);
+});
+
+test("built-in list prices price a common model with no user input", () => {
+  const record = makeRecord(at(0, 10), { entryId: "claude", model: "claude-sonnet-4-20250514", costUsd: null });
+  const result = query([record], { range: "today", nowMs: NOW });
+
+  // Built-in row: $3 in / $15 out per million; default record is 100 in + 10 out.
+  const expected = 100 * 3e-6 + 10 * 15e-6;
+  assert.ok(Math.abs(result.totals.cost - expected) < 1e-9);
+  assert.equal(result.totals.costEstimated, 1, "the built-in table did the pricing");
+  assert.equal(result.totals.costMissing, 0);
+  assert.equal(result.totals.costComplete, false, "an estimated price is not a recorded one");
+});
+
+test("a user rate replaces only the buckets it names, even on a built-in model", () => {
+  const record = makeRecord(at(0, 10), { entryId: "claude", model: "claude-sonnet-4-20250514", costUsd: null });
+  // What the panel sends: one bucket typed, the rest left for the built-in row.
+  const result = query([record], { range: "today", nowMs: NOW, pricing: { "claude-sonnet-4-20250514": { input: "1000" } } });
+
+  const expected = 100 * 1000e-6 + 10 * 15e-6;
+  assert.ok(Math.abs(result.totals.cost - expected) < 1e-9, "output still uses the built-in $15/M");
+  assert.equal(result.totals.costEstimated, 1);
+});
+
+test("a recorded zero is a price, not a gap", () => {
+  // Compaction summaries and free local models report cost 0 with real tokens.
+  const free = makeRecord(at(0, 10), {
+    entryId: "free",
+    model: "claude-sonnet-4-20250514",
+    costUsd: 0,
+  });
+  const result = query([free], { range: "today", nowMs: NOW });
+
+  assert.equal(result.totals.cost, 0, "the recorded price stands even when the model has a built-in one");
+  assert.equal(result.totals.costEstimated, 0, "nothing was estimated");
+  assert.equal(result.totals.costMissing, 0, "and nothing is missing");
+  assert.equal(result.totals.costComplete, true);
+});
+
+test("the trend series carries the same estimate flags as the totals", () => {
+  const record = makeRecord(at(0, 10), { entryId: "claude", model: "claude-sonnet-4-20250514", costUsd: null });
+  const result = query([record], { range: "today", nowMs: NOW });
+  const point = result.series.find((entry) => entry.requests > 0);
+  assert.ok(point, "the record lands in one of the trend buckets");
+  assert.equal(point.costEstimated, 1, "the tooltip can tell an estimate from a bill");
+  assert.equal(point.costMissing, 0);
+  assert.equal(point.costComplete, false);
+  assert.ok(Math.abs(point.cost - result.totals.cost) < 1e-12);
+});
+
+test("rank rows expose their estimate count to the view", () => {
+  const unpriced = makeRecord(at(0, 10), { entryId: "no-price", model: "local-model", costUsd: null });
+  const result = query([unpriced], { range: "today", nowMs: NOW, pricing: { "local-model": { input: 1 } } });
+
+  assert.equal(result.byModel[0].costEstimated, 1);
+  assert.equal(result.byModel[0].costComplete, false);
+  assert.equal(result.bySource[0].costEstimated, 1);
+  assert.equal(result.bySource[0].costComplete, false);
+});

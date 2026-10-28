@@ -73,7 +73,11 @@ test("hello reports both roots, availability and default preferences", async () 
   assert.equal(hello.version, manifest.version, "hello reports the version it was packed with");
   assert.equal(hello.availability.cli, true);
   assert.equal(hello.availability.desktop, true);
-  assert.deepEqual(hello.prefs, { range: "7d", sources: [], accent: "blue", theme: "system", fromMs: 0, toMs: 0 });
+  assert.deepEqual(hello.prefs, { range: "7d", sources: [], accent: "blue", theme: "system", fromMs: 0, toMs: 0, pricing: {} });
+  assert.ok(
+    Object.keys(hello.builtinPricing ?? {}).length >= 100,
+    "hello hands the panel the built-in table it needs for placeholders",
+  );
   assert.equal(hello.scan.records, 0);
   assert.ok(Array.isArray(hello.limitations) && hello.limitations.length > 0);
 });
@@ -113,12 +117,12 @@ test("preferences round-trip through the host settings", async () => {
   const updated = await backend.invoke("usage.prefs.set", { range: "30d", sources: ["desktop", "bogus"] });
 
   assert.equal(updated.ok, true);
-  assert.deepEqual(updated.prefs, { range: "30d", sources: ["desktop"], accent: "blue", theme: "system", fromMs: 0, toMs: 0 });
-  assert.deepEqual(settings.usagePrefs, { range: "30d", sources: ["desktop"], accent: "blue", theme: "system", fromMs: 0, toMs: 0 });
+  assert.deepEqual(updated.prefs, { range: "30d", sources: ["desktop"], accent: "blue", theme: "system", fromMs: 0, toMs: 0, pricing: {} });
+  assert.deepEqual(settings.usagePrefs, { range: "30d", sources: ["desktop"], accent: "blue", theme: "system", fromMs: 0, toMs: 0, pricing: {} });
   assert.equal(settingsWrites.length, 1);
 
   const hello = await backend.invoke("usage.hello", {});
-  assert.deepEqual(hello.prefs, { range: "30d", sources: ["desktop"], accent: "blue", theme: "system", fromMs: 0, toMs: 0 });
+  assert.deepEqual(hello.prefs, { range: "30d", sources: ["desktop"], accent: "blue", theme: "system", fromMs: 0, toMs: 0, pricing: {} });
 });
 
 test("a free-form accent survives validation and anything else falls back", async () => {
@@ -176,7 +180,7 @@ test("rebuild clears the cache and rescans", async () => {
 test("an unknown accent falls back to the default palette", async () => {
   const { backend } = await setup();
   const fallback = await backend.invoke("usage.prefs.set", { accent: "neon" });
-  assert.deepEqual(fallback.prefs, { range: "7d", sources: [], accent: "blue", theme: "system", fromMs: 0, toMs: 0 });
+  assert.deepEqual(fallback.prefs, { range: "7d", sources: [], accent: "blue", theme: "system", fromMs: 0, toMs: 0, pricing: {} });
   const violet = await backend.invoke("usage.prefs.set", { accent: "violet" });
   assert.equal(violet.prefs.accent, "violet");
 });
@@ -239,4 +243,49 @@ test("concurrent first calls initialise the cache once, not once per caller", as
   // Only one resolution is asserted here: `scan` mutates the record count, so any
   // equality between what `hello` and `get` saw would depend on which finished first.
   assert.equal(dataPathCalls, 1, "the data directory is resolved once");
+});
+
+test("the pricing table round-trips through preferences", async () => {
+  const { backend, settings, settingsWrites } = await setup();
+
+  const saved = await backend.invoke("usage.prefs.set", {
+    pricing: {
+      "gpt-4o": { input: "2.5", output: "10", cacheRead: "1.25" },
+      broken: { input: "-1", output: "abc" },
+    },
+  });
+  assert.equal(saved.ok, true);
+  assert.deepEqual(
+    saved.prefs.pricing,
+    { "gpt-4o": { model: "gpt-4o", input: 2.5, output: 10, cacheRead: 1.25 } },
+    "junk rows are dropped and only the buckets the user typed are stored",
+  );
+  assert.equal(settingsWrites.length, 1);
+  assert.deepEqual(settings.usagePrefs.pricing, saved.prefs.pricing);
+
+  const hello = await backend.invoke("usage.hello", {});
+  assert.deepEqual(hello.prefs.pricing, saved.prefs.pricing, "hello reports what was persisted");
+
+  await backend.invoke("usage.prefs.set", { pricing: {} });
+  const cleared = await backend.invoke("usage.hello", {});
+  assert.deepEqual(cleared.prefs.pricing, {}, "an empty table clears it");
+});
+
+test("a rate change recomputes the totals without rescanning", async () => {
+  const { backend } = await setup();
+  await backend.invoke("usage.scan", {});
+  const before = await backend.invoke("usage.get", { range: "all", nowMs: NOW() });
+  assert.ok(before.totals.costMissing > 0, "the fixture leaves a record unpriced to work with");
+  assert.equal(before.totals.costEstimated, 0, "and nothing is estimated yet");
+
+  // The fixture leaves one m1 record unpriced; nothing in it carries a built-in
+  // price, so this is a pure user rate.
+  const saved = await backend.invoke("usage.prefs.set", { pricing: { m1: { input: "1000" } } });
+  assert.equal(saved.ok, true);
+
+  const after = await backend.invoke("usage.get", { range: "all", nowMs: NOW() });
+  assert.equal(after.meta.records, before.meta.records, "a rate change never rescans");
+  assert.ok(after.totals.costEstimated > before.totals.costEstimated, "the unpriced record is now priced");
+  assert.ok(after.totals.costMissing < before.totals.costMissing);
+  assert.ok(after.totals.cost > before.totals.cost, "and the total moves with it");
 });

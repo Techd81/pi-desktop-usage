@@ -24,6 +24,7 @@ const { RecordStore } = require("./lib/store.js");
 const { scanRoot } = require("./lib/scan.js");
 const { query } = require("./lib/aggregate.js");
 const { loadEnrichment } = require("./lib/enrich.js");
+const { normalizePricing, BUILTIN_PRICING } = require("./lib/pricing.js");
 const { resolveRoots } = require("./lib/paths.js");
 const cliAdapter = require("./adapters/cli.js");
 const desktopAdapter = require("./adapters/desktop.js");
@@ -33,7 +34,7 @@ const SOURCE_IDS = ["cli", "desktop"];
 const ACCENTS = ["blue", "violet", "green", "amber", "rose"];
 const THEMES = ["system", "light", "dark"];
 const HEX_COLOR = /^#[0-9a-f]{6}$/i;
-const DEFAULT_PREFS = { range: "7d", sources: [], accent: "blue", theme: "system", fromMs: 0, toMs: 0 };
+const DEFAULT_PREFS = { range: "7d", sources: [], accent: "blue", theme: "system", fromMs: 0, toMs: 0, pricing: {} };
 const DEFAULT_BUDGET_MS = 12000;
 const MAX_BUDGET_MS = 20000;
 const ENRICH_REFRESH_MS = 60 * 1000;
@@ -53,7 +54,7 @@ function sanitizeAccent(value) {
 
 /**
  * @param {unknown} value
- * @returns {{ range: string, sources: string[], accent: string, theme: string, fromMs: number, toMs: number }}
+ * @returns {{ range: string, sources: string[], accent: string, theme: string, fromMs: number, toMs: number, pricing: Record<string, any> }}
  */
 function sanitizePrefs(value) {
   const input = /** @type {Record<string, any>} */ (value && typeof value === "object" ? value : {});
@@ -66,7 +67,7 @@ function sanitizePrefs(value) {
   const fromMs = Number.isFinite(input.fromMs) && input.fromMs > 0 ? Math.floor(input.fromMs) : 0;
   const toMs = Number.isFinite(input.toMs) && input.toMs > 0 ? Math.floor(input.toMs) : 0;
   if (range === "custom" && !(toMs > fromMs)) range = DEFAULT_PREFS.range;
-  return { range, sources, accent, theme, fromMs, toMs };
+  return { range, sources, accent, theme, fromMs, toMs, pricing: normalizePricing(input.pricing) };
 }
 
 /**
@@ -244,6 +245,7 @@ function createBackend(options = {}) {
       roots,
       availability,
       prefs,
+      builtinPricing: BUILTIN_PRICING,
       scan: scanSummary(),
       dataDir,
       dataDirIsFallback,
@@ -276,6 +278,7 @@ function createBackend(options = {}) {
       nowMs,
       fromMs: windowRange === "custom" ? fromMs : 0,
       toMs: windowRange === "custom" ? toMs : 0,
+      pricing: prefs.pricing,
     });
 
     return {

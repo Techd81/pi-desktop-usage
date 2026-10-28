@@ -1895,3 +1895,200 @@ button.heat-cell.is-selected {
     grid-template-columns: minmax(0, 1fr);
   }
 }
+
+/* ---------------------------------------------------------------- pricing */
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(8, 10, 14, 0.45);
+}
+
+.pricing-modal {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: min(780px, 100%);
+  max-height: min(78vh, 720px);
+  padding: 18px 20px 16px;
+  box-shadow: 0 24px 64px rgba(16, 24, 40, 0.32);
+}
+
+.pricing-modal .card-head {
+  margin-bottom: 0;
+}
+
+.price-head,
+.price-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) repeat(4, 78px) 26px;
+  align-items: center;
+  gap: 8px;
+}
+
+.price-head {
+  padding: 0 2px 2px;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.price-head .price-col {
+  text-align: right;
+}
+
+.price-input::placeholder {
+  color: var(--muted);
+  opacity: 1;
+}
+
+.price-tools {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.price-filter {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 5px 9px;
+  border: 1px solid var(--control-border);
+  border-radius: 8px;
+  background: var(--surface-2);
+  color: var(--fg);
+  font: inherit;
+  font-size: 12px;
+}
+
+.price-filter:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.price-row[hidden] {
+  display: none;
+}
+
+.price-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  overscroll-behavior: contain;
+}
+
+.price-row {
+  padding: 6px 2px;
+  border-bottom: 1px solid var(--border);
+}
+
+.price-row:last-child {
+  border-bottom: 0;
+}
+
+.price-name {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+  font-size: 12.5px;
+}
+
+.price-name b {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+}
+
+.price-name em {
+  flex: 0 0 auto;
+  font-style: normal;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.price-flag {
+  flex: 0 0 auto;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--delta-down-wash);
+  color: var(--delta-down);
+  font-size: 10.5px;
+  line-height: 16px;
+  white-space: nowrap;
+}
+
+.price-builtin {
+  flex: 0 0 auto;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+  font-size: 10.5px;
+  line-height: 16px;
+  white-space: nowrap;
+}
+
+.price-input {
+  width: 100%;
+  padding: 4px 6px;
+  border: 1px solid var(--control-border);
+  border-radius: 7px;
+  background: var(--surface-2);
+  color: var(--fg);
+  font: inherit;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.price-input:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.price-clear {
+  width: 24px;
+  height: 24px;
+  font-size: 15px;
+  line-height: 1;
+  color: var(--muted);
+}
+
+/* A row's clear button rides along in the grid even when it has nothing to
+   clear, so typing can reveal it without a re-render. */
+.price-clear[hidden] {
+  display: none;
+}
+
+.price-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+
+.price-actions {
+  display: flex;
+  gap: 8px;
+}
+
+@media (max-width: 720px) {
+  .price-head,
+  .price-row {
+    grid-template-columns: minmax(0, 1fr) repeat(4, 62px) 22px;
+    gap: 6px;
+  }
+}

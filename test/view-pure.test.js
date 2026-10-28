@@ -478,3 +478,139 @@ test("the heat hover card lists the day level and its models with shares", () =>
   const quiet = view.heatTipHtml({ dateMs: Date.now(), tokens: 0, cost: 0, requests: 0, models: [] }, 0);
   assert.ok(!quiet.includes("模型明细"), "an empty day has no model block");
 });
+
+test("the pricing dialog edits the draft and ships no markup surprises", () => {
+  const view = require("../views/app.js");
+  view.state.locale = "zh";
+  view.state.pricingOpen = false;
+  view.state.pricingDraft = {};
+  assert.ok(!view.bodyHtml(richUsage()).includes("pricing-modal"), "closed by default");
+
+  view.state.pricingOpen = true;
+  view.state.pricingDraft = { m1: { input: "3" } };
+  const html = view.bodyHtml(richUsage());
+
+  assert.ok(html.includes("pricing-modal"), "the dialog is part of the panel while open");
+  assert.ok(html.includes("模型定价"));
+  assert.equal((html.match(/class="price-row"/g) ?? []).length, 1, "one row per model in the window");
+  assert.equal((html.match(/data-role="price"/g) ?? []).length, 4, "four rates per model");
+  assert.ok(html.includes('value="3"'), "the draft value is what the input shows");
+  assert.ok(html.includes("data-action=\"pricing-save\""), "there is a way to commit");
+  assert.deepEqual(unbalancedTags(html), []);
+
+  view.state.pricingOpen = false;
+  view.state.pricingDraft = {};
+});
+
+test("the pricing dialog lists every built-in model behind an empty field", () => {
+  const view = require("../views/app.js");
+  view.state.locale = "zh";
+  view.state.builtinPricing = {
+    m1: { input: 3, output: 15, cacheRead: 0.3, cacheWrite: 3.75 },
+    "claude-sonnet-4-20250514": { input: 3, output: 15, cacheRead: 0.3, cacheWrite: 3.75 },
+  };
+  view.state.pricingOpen = true;
+  view.state.pricingDraft = {};
+
+  const html = view.bodyHtml(richUsage());
+  assert.equal(
+    (html.match(/class="price-row"/g) ?? []).length,
+    2,
+    "the window model plus the built-in model that has no traffic here",
+  );
+  assert.ok(html.includes("claude-sonnet-4-20250514"), "a built-in model is listed and editable");
+  assert.ok(html.includes("price-filter"), "the list can be searched");
+  assert.ok(html.includes("共 2 个模型"), "the count reflects the list");
+  assert.equal((html.match(/data-role="price"/g) ?? []).length, 8, "four rates per model");
+  assert.ok(html.includes("price-builtin"), "both rows are marked as built-in");
+  assert.ok(html.includes('value=""'), "fields start empty and inherit the built-in rate");
+
+  // Every bucket, not just the first: the placeholder is the only place the
+  // built-in rate is visible for a model the user has not typed anything into.
+  const row = html.slice(html.indexOf('data-price-model="m1"'));
+  const cells = row.slice(0, row.indexOf("</li>"));
+  for (const [field, rate] of [
+    ["input", "3"],
+    ["output", "15"],
+    ["cacheRead", "0.3"],
+    ["cacheWrite", "3.75"],
+  ]) {
+    assert.ok(
+      cells.includes(`data-field="${field}"`) && cells.includes(`placeholder="${rate}"`),
+      `${field} shows the built-in ${rate}`,
+    );
+  }
+  assert.deepEqual(unbalancedTags(html), []);
+
+  view.state.pricingOpen = false;
+  view.state.builtinPricing = {};
+});
+
+test("the pricing dialog counts what its filter leaves behind", () => {
+  const view = require("../views/app.js");
+  view.state.locale = "zh";
+  view.state.builtinPricing = {
+    m1: { input: 3, output: 15, cacheRead: 0.3, cacheWrite: 3.75 },
+    "claude-sonnet-4-20250514": { input: 3, output: 15, cacheRead: 0.3, cacheWrite: 3.75 },
+  };
+  view.state.pricingOpen = true;
+  view.state.pricingDraft = {};
+  view.state.pricingFilter = "gpt";
+
+  const none = view.bodyHtml(richUsage());
+  assert.equal((none.match(/class="price-row"/g) ?? []).length, 0, "nothing matches the filter");
+  assert.ok(none.includes("共 0 个模型"), "the count follows the filter");
+  assert.ok(none.includes("当前区间还没有发现模型"), "an empty list says why it is empty");
+
+  view.state.pricingFilter = "claude";
+  const one = view.bodyHtml(richUsage());
+  assert.equal((one.match(/class="price-row"/g) ?? []).length, 1);
+  assert.ok(one.includes("共 1 个模型"));
+
+  view.state.pricingFilter = "";
+  view.state.pricingOpen = false;
+  view.state.builtinPricing = {};
+});
+
+test("the rate card opens on an empty panel too", () => {
+  const view = require("../views/app.js");
+  view.state.locale = "zh";
+  view.state.pricingOpen = true;
+  view.state.pricingDraft = {};
+  view.state.builtinPricing = { m1: { input: 3, output: 15, cacheRead: 0.3, cacheWrite: 3.75 } };
+
+  const html = view.bodyHtml({ meta: { records: 0 } });
+  assert.ok(html.includes("pricing-modal"), "a first install can still reach its rate card");
+  assert.deepEqual(unbalancedTags(html), []);
+
+  view.state.pricingOpen = false;
+  view.state.builtinPricing = {};
+});
+
+test("a draft row submits only the buckets the user typed", () => {
+  const view = require("../views/app.js");
+
+  assert.deepEqual(
+    view.draftRates({ input: "3", output: "", cacheRead: " ", cacheWrite: null }),
+    { input: "3" },
+    "an empty field must not freeze the built-in rate at zero",
+  );
+  assert.deepEqual(view.draftRates({}), {}, "an untouched row is not a price");
+  assert.deepEqual(
+    view.draftRates({ input: "0", output: "0" }),
+    { input: "0", output: "0" },
+    "a real zero is a price the user typed",
+  );
+});
+
+test("an estimated cost is never rendered as an exact one", () => {
+  const view = require("../views/app.js");
+  view.state.locale = "zh";
+  const usage = cardUsage();
+  // The price table, not the provider, priced these rows.
+  usage.totals = { ...usage.totals, costEstimated: 2, costComplete: false };
+  usage.bySource = usage.bySource.map((row) => ({ ...row, costEstimated: 1, costComplete: false }));
+
+  assert.ok(view.sourceRankCardHtml(usage).includes("≈$0.40"), "a partial total keeps the ≈ mark");
+  assert.ok(view.metricsHtml(usage).includes("≈"), "and so does the cost card");
+});

@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "io.github.techd81.pi-desktop-usage",
   "name": "Usage Statistics",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Token usage and cost for PI-Desktop and the Pi CLI in one local panel, with the two sources kept apart.",
   "author": "Techd81",
   "license": "MIT",
