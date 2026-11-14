@@ -1,6 +1,6 @@
 {
   "name": "pi-desktop-usage",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "private": true,
   "type": "commonjs",
   "description": "Local token usage and cost statistics for PI-Desktop and the Pi CLI, in one PI-Desktop panel.",
@@ -27,6 +27,7 @@
     "typecheck": "tsc -p tsconfig.json",
     "pack": "node scripts/pack.mjs",
     "probe": "node scripts/probe.mjs",
+    "pricing": "node scripts/sync-pricing.mjs",
     "icon": "node scripts/make-icon.mjs"
   },
   "devDependencies": {

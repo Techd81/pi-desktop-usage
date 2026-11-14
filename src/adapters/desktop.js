@@ -216,13 +216,24 @@ function parseEntry(parsed, ctx) {
       parseTimestampMs(parsed.endedAt) ??
       ctx.fallbackTimestampMs;
     const entryId = typeof parsed.id === "string" && parsed.id !== "" ? parsed.id : `summary:${timestampMs}`;
-    return expandUsage(usage, {
-      sessionId: ctx.sessionId,
-      projectPath: ctx.projectPath,
-      entryId,
-      timestampMs,
-      kind: "summary",
-    });
+    // Who summarized is recorded on the entry (and on its one operation), never
+    // on the aggregate totals above them: reading only the totals used to leave
+    // every compaction row in an "unknown model" bucket.
+    const operation = isObject(usage?.desktopUsage) ? usage.desktopUsage : null;
+    return expandUsage(
+      {
+        ...usage,
+        providerId: usage?.providerId ?? operation?.providerId ?? parsed.providerId,
+        modelId: usage?.modelId ?? operation?.modelId ?? parsed.modelId,
+      },
+      {
+        sessionId: ctx.sessionId,
+        projectPath: ctx.projectPath,
+        entryId,
+        timestampMs,
+        kind: "summary",
+      },
+    );
   }
 
   if (parsed.type !== "message") return [];

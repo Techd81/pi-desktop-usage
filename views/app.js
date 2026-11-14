@@ -1986,11 +1986,33 @@ const OTHER_SLICE_COLOR = "color-mix(in oklab, var(--fg) 32%, transparent)";
   function focusPricingTrigger() {
     focusInDialog('[data-action="pricing-open"]');
   }
+
+  /**
+   * Mount or unmount the dialog on its own.
+   *
+   * Opening a rate card changes no number on the panel, so a full `render()`
+   * would only rebuild every chart behind it — which reads as a page refresh.
+   * The markup is the same one `bodyHtml` embeds, so a real re-render (a new
+   * window, a finished scan) still lands on the identical DOM.
+   */
+  function paintPricing() {
+    if (typeof document === "undefined") return;
+    const container = document.getElementById("app");
+    if (!container) return;
+    for (const node of container.querySelectorAll(".modal-backdrop")) node.remove();
+    if (!state.pricingOpen) return;
+    // The markup is parsed off-document and moved in as one finished subtree,
+    // so the panel never paints a half-built dialog.
+    const host = document.createElement("div");
+    host.innerHTML = pricingDialogHtml(state.usage);
+    while (host.firstChild) container.appendChild(host.firstChild);
+  }
+
   function openPricing() {
     state.pricingOpen = true;
     state.pricingDraft = JSON.parse(JSON.stringify(state.prefs.pricing ?? {}));
     state.pricingFilter = "";
-    render();
+    paintPricing();
     focusInDialog('[data-role="pricing-filter"]');
   }
 
@@ -1999,7 +2021,7 @@ const OTHER_SLICE_COLOR = "color-mix(in oklab, var(--fg) 32%, transparent)";
     state.pricingOpen = false;
     state.pricingDraft = {};
     state.pricingFilter = "";
-    render();
+    paintPricing();
     focusPricingTrigger();
   }
 
@@ -2007,7 +2029,15 @@ const OTHER_SLICE_COLOR = "color-mix(in oklab, var(--fg) 32%, transparent)";
   function clearPricing(model) {
     if (!model) return;
     delete state.pricingDraft[model];
-    render();
+    paintPricing();
+    if (typeof document === "undefined") return;
+    // The × vanishes with the last override, so the caret moves to the row's
+    // first field instead of falling back to the document.
+    const row = [...document.querySelectorAll("[data-price-model]")].find(
+      (node) => node.getAttribute("data-price-model") === model,
+    );
+    const field = row?.querySelector("input");
+    if (field instanceof HTMLElement) field.focus();
   }
 
   /**

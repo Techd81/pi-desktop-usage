@@ -11,6 +11,7 @@
  * - `{ "type": "message", "message": { "role": "assistant", "usage": {...},
  *      "provider", "model", "timestamp", "responseId" } }` → one assistant record
  * - `{ "type": "compaction" | "branch_summary", "usage": {...} }` → one summary record
+ *   (no model of its own; the scan's `lastModel` names the session model that ran it)
  *
  * Usage payload: `{ input, output, cacheRead, cacheWrite, totalTokens, cost: { total } }`.
  */
@@ -63,7 +64,7 @@ function parseHeader(parsed) {
  * One JSONL entry → zero or more records.
  *
  * @param {unknown} parsed
- * @param {{ sessionId: string, projectPath: string | null, fallbackTimestampMs: number }} ctx
+ * @param {{ sessionId: string, projectPath: string | null, fallbackTimestampMs: number, lastModel?: string, lastProvider?: string }} ctx
  * @returns {import("../lib/normalize.js").UsageRecord[]}
  */
 function parseEntry(parsed, ctx) {
@@ -82,8 +83,12 @@ function parseEntry(parsed, ctx) {
       sessionId: ctx.sessionId,
       entryId,
       timestampMs,
-      provider: "",
-      model: "",
+      // A compaction row records what it spent but not who spent it: the CLI
+      // writes `usage` only, and the row runs on the session's own model. Naming
+      // that model keeps the tokens out of an "unknown model" slice that no
+      // price could ever be matched to.
+      provider: ctx.lastProvider ?? "",
+      model: ctx.lastModel ?? "",
       inputTokens: usage.input,
       outputTokens: usage.output,
       cacheReadTokens: usage.cacheRead,

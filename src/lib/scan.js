@@ -240,6 +240,11 @@ async function scanFile({ file, source, adapter, store, shouldStop }) {
   let startOffset = 0;
   let sessionId = "";
   let projectPath = null;
+  // The newest provider/model this file has named so far. A summary row records
+  // what it spent but not which model spent it, so it borrows the session's own;
+  // kept across passes, because an incremental read may resume right on one.
+  let lastModel = "";
+  let lastProvider = "";
   /** @type {string | null} */
   let dropSessionId = null;
   const head = await headFingerprint(file.path);
@@ -258,6 +263,8 @@ async function scanFile({ file, source, adapter, store, shouldStop }) {
       startOffset = previous.offset;
       sessionId = previous.sessionId ?? "";
       projectPath = previous.projectPath ?? null;
+      lastModel = previous.lastModel ?? "";
+      lastProvider = previous.lastProvider ?? "";
     } else if (previous.sessionId && !store.sessionStillReferenced(source, previous.sessionId, key)) {
       // Truncated or replaced. The old records are dropped only after the
       // replacement has been read: a failed read would otherwise leave the cache
@@ -274,6 +281,8 @@ async function scanFile({ file, source, adapter, store, shouldStop }) {
     sessionId: sessionId || sessionIdFromPath(file.path, source),
     projectPath,
     fallbackTimestampMs,
+    lastModel,
+    lastProvider,
   });
 
   /** @type {import("../lib/normalize.js").UsageRecord[]} */
@@ -300,7 +309,14 @@ async function scanFile({ file, source, adapter, store, shouldStop }) {
       }
       const records = adapter.parseEntry(parsed, context());
       if (records.length > 0) {
-        for (const record of records) collected.push(record);
+        for (const record of records) {
+          collected.push(record);
+          // Remember who this line named: the next summary row in the file may
+          // only say what it spent, never which model spent it.
+          if (!record.model) continue;
+          lastModel = record.model;
+          if (record.provider) lastProvider = record.provider;
+        }
         appended += records.length;
       }
     },
@@ -326,6 +342,8 @@ async function scanFile({ file, source, adapter, store, shouldStop }) {
     offset: outcome.offset,
     sessionId,
     projectPath,
+    lastModel,
+    lastProvider,
     head,
     incomplete: outcome.stopped,
   });

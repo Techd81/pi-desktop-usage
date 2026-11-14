@@ -369,3 +369,40 @@ test("a directory this pass could not list does not freeze retirement elsewhere"
   assert.equal(after.partial, true, "the junction still blocks a full listing");
   assert.equal(store.size, 4, "records of the removed extra session are retired");
 });
+
+test("a summary row is attributed to the model its session was running", async () => {
+  const { cliRoot, store } = await setup();
+  await scanRoot({ root: cliRoot, source: "cli", adapter: cliAdapter, store });
+
+  const summary = store.all().find((record) => record.entryId === "c1");
+  assert.ok(summary);
+  assert.equal(summary.kind, "summary");
+  assert.equal(summary.model, "m1", "the compaction ran on the session model");
+  assert.equal(summary.provider, "acme");
+  assert.equal(summary.totalTokens, 35, "attribution never rewrites the tokens");
+});
+
+test("the session model survives an incremental resume on a summary row", async () => {
+  const { tmp, cliRoot, store } = await setup();
+  await scanRoot({ root: cliRoot, source: "cli", adapter: cliAdapter, store });
+  assert.equal(store.fileState(`cli|${path.join(cliRoot, CLI_FILE)}`).lastModel, "m2");
+
+  // The tail of the file holds no assistant message: only the cursor can name
+  // the model behind this compaction.
+  const extra = {
+    type: "compaction",
+    id: "c2",
+    timestamp: "2026-10-01T10:08:00.000Z",
+    usage: { input: 40, output: 4, totalTokens: 44, cost: { total: 0 } },
+  };
+  await fs.appendFile(path.join(cliRoot, CLI_FILE), `${JSON.stringify(extra)}\n`, "utf8");
+
+  const reopened = new RecordStore({ dir: path.join(tmp, "cache") });
+  await reopened.load();
+  const pass = await scanRoot({ root: cliRoot, source: "cli", adapter: cliAdapter, store: reopened });
+  assert.equal(pass.appendedRecords, 1);
+  const appended = reopened.all().find((record) => record.entryId === "c2");
+  assert.ok(appended);
+  assert.equal(appended.model, "m2", "the persisted cursor carried the model");
+  assert.equal(appended.provider, "acme");
+});

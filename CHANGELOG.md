@@ -1,6 +1,12 @@
 # Changelog
 
 
+## 0.1.3
+
+- 模型定价弹窗：打开、关闭、清除某一行都只重绘弹窗本身，不再整页重排——背后的图表、滚动位置与悬停状态原地不动；此前每次开关都会重建整页 DOM，看起来像刷了两次
+- 内置价目表按 cc-switch 上游同步（239 个模型）：新增 `claude-fable-5-2`、`gemini-4-carbon`、`gemini-4-hydrogen`、`gpt-6.1-terra`、`grok-4.6-build`、`grok-4.7-build`、`grok-4.7-build-fast`，修正 `gpt-5.6-luna` 与 `gpt-5.6-terra` 的单价；新增 `npm run pricing` 从 cc-switch 的 `schema.rs`（种子表 + 改价修正表）重新生成本表，`npm run pricing -- --check` 用来发现上游改价
+- 修复「未知模型」：压缩摘要记录的模型此前被丢掉——桌面侧忽略了条目上的 `modelId` / `providerId`，CLI 侧记录本身只写用量不写模型；现在桌面侧读条目（及其 operation）的模型，CLI 侧回落到该会话最近一次回复的模型，模型随扫描游标持久化，增量续扫也不会丢；缓存 schema 升到 2，旧游标自动作废并重扫一次
+
 ## 0.1.2
 
 - 模型定价：内置 232 个常用模型的列表价（Claude / GPT / Gemini / DeepSeek / Kimi / GLM / Qwen / Grok / MiniMax / Mistral / 豆包 / 混元 等，取自 cc-switch 的种子数据，MIT），会话里没带价格的记录开箱即用它们估算；面板顶部新增定价入口，按模型覆盖每百万 token 的输入 / 输出 / 缓存读 / 缓存写单价（美元），留空的字段继续用内置价

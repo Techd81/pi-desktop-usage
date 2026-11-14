@@ -265,3 +265,66 @@ test("an aggregate that only reports its total still counts the whole total", ()
   const requests = records.reduce((sum, record) => sum + record.requestCount, 0);
   assert.equal(requests, 1, "one message is still one request");
 });
+
+test("a cli compaction row borrows the model its session was running", () => {
+  const entry = {
+    type: "compaction",
+    id: "c9",
+    timestamp: "2026-10-02T08:00:00.000Z",
+    usage: { input: 2000, output: 100, cacheRead: 0, cacheWrite: 0, cost: { total: 0.03 } },
+  };
+  const unknown = cli.parseEntry(entry, { sessionId: "s", projectPath: null, fallbackTimestampMs: 1 });
+  assert.equal(unknown.length, 1);
+  assert.equal(unknown[0].model, "", "nothing to name the model with before any message");
+
+  const known = cli.parseEntry(entry, {
+    sessionId: "s",
+    projectPath: null,
+    fallbackTimestampMs: 1,
+    lastModel: "deepseek-v4-flash-0731",
+    lastProvider: "token-rhythm",
+  });
+  assert.equal(known[0].model, "deepseek-v4-flash-0731");
+  assert.equal(known[0].provider, "token-rhythm");
+  assert.equal(known[0].kind, "summary");
+  assert.equal(known[0].totalTokens, 2100, "the attribution never changes the tokens");
+  assert.equal(known[0].costUsd, 0.03);
+});
+
+test("a desktop compaction row keeps the model its entry records", () => {
+  const entry = {
+    type: "compaction",
+    id: "d9",
+    createdAt: "2026-10-02T08:00:00.000Z",
+    providerId: "prov-7",
+    modelId: "deepseek-v4.1-flash",
+    usage: {
+      input: 3000,
+      output: 300,
+      totalTokens: 3300,
+      cost: { total: 0.004 },
+      desktopUsage: {
+        aggregation: "operation",
+        operationId: "op-9",
+        providerId: "prov-7",
+        modelId: "deepseek-v4.1-flash",
+        inputTokens: 3000,
+        outputTokens: 300,
+        totalTokens: 3300,
+      },
+    },
+  };
+  const records = desktop.parseEntry(entry, { sessionId: "s", projectPath: null, fallbackTimestampMs: 1 });
+  assert.equal(records.length, 1, "the totals stay aggregate-silent, not double counted");
+  assert.equal(records[0].model, "deepseek-v4.1-flash");
+  assert.equal(records[0].providerKey, "prov-7");
+  assert.equal(records[0].totalTokens, 3300);
+  assert.equal(records[0].kind, "summary");
+
+  // The entry-level ids are the fallback when only the nested operation names them.
+  const bare = desktop.parseEntry(
+    { ...entry, providerId: undefined, modelId: undefined },
+    { sessionId: "s", projectPath: null, fallbackTimestampMs: 1 },
+  );
+  assert.equal(bare[0].model, "deepseek-v4.1-flash", "the operation carries the model too");
+});

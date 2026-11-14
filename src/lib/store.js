@@ -19,7 +19,12 @@ const fs = require("node:fs/promises");
 const path = require("node:path");
 const { createReadStream } = require("node:fs");
 
-const STATE_SCHEMA = 1;
+/**
+ * Bumped whenever a parsed record would come out differently from the same
+ * bytes: an older cursor is dropped, so the next pass re-reads the files and
+ * replaces the stale records instead of keeping them forever.
+ */
+const STATE_SCHEMA = 2;
 
 class RecordStore {
   /**
@@ -31,7 +36,7 @@ class RecordStore {
     this.recordsPath = path.join(dir, "records.jsonl");
     /** @type {Map<string, import("../lib/normalize.js").UsageRecord>} */
     this.records = new Map();
-    /** @type {Map<string, { source: string, size: number, mtimeMs: number, offset: number, sessionId: string | null, projectPath: string | null, head?: string | null, incomplete?: boolean }>} */
+    /** @type {Map<string, { source: string, size: number, mtimeMs: number, offset: number, sessionId: string | null, projectPath: string | null, lastModel?: string, lastProvider?: string, head?: string | null, incomplete?: boolean }>} */
     this.files = new Map();
     /** `${source}\\0${sessionId}` → record ids, so dropping one session is O(k). */
     this.bySession = new Map();
@@ -82,6 +87,8 @@ class RecordStore {
         offset: Number(value.offset) || 0,
         sessionId: typeof value.sessionId === "string" ? value.sessionId : null,
         projectPath: typeof value.projectPath === "string" ? value.projectPath : null,
+        lastModel: typeof value.lastModel === "string" ? value.lastModel : "",
+        lastProvider: typeof value.lastProvider === "string" ? value.lastProvider : "",
         head: typeof value.head === "string" ? value.head : null,
         incomplete: value.incomplete === true,
       });
@@ -144,7 +151,7 @@ class RecordStore {
 
   /**
    * @param {string} key
-   * @returns {{ source: string, size: number, mtimeMs: number, offset: number, sessionId: string | null, projectPath: string | null, head?: string | null, incomplete?: boolean } | undefined}
+   * @returns {{ source: string, size: number, mtimeMs: number, offset: number, sessionId: string | null, projectPath: string | null, lastModel?: string, lastProvider?: string, head?: string | null, incomplete?: boolean } | undefined}
    */
   fileState(key) {
     return this.files.get(key);
@@ -152,7 +159,7 @@ class RecordStore {
 
   /**
    * @param {string} key
-   * @param {{ source: string, size: number, mtimeMs: number, offset: number, sessionId: string | null, projectPath: string | null, head?: string | null, incomplete?: boolean }} value
+   * @param {{ source: string, size: number, mtimeMs: number, offset: number, sessionId: string | null, projectPath: string | null, lastModel?: string, lastProvider?: string, head?: string | null, incomplete?: boolean }} value
    */
   setFileState(key, value) {
     this.files.set(key, value);

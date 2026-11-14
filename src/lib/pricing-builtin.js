@@ -9,8 +9,12 @@
  * floor under the user's own rates: whatever they type for a model overrides it,
  * and clearing their row falls back here.
  *
- * Source: the seeded pricing table of cc-switch (MIT, © 2025 Jason Young),
- * https://github.com/farion1231/cc-switch — list prices as published there.
+ * Generated from the seeded rate card of cc-switch (MIT, © 2025 Jason Young),
+ * https://github.com/farion1231/cc-switch — `src-tauri/src/database/schema.rs`,
+ * `seed_model_pricing` plus the `repair_current_model_pricing` corrections.
+ * Re-run `npm run pricing` to resync; `npm run pricing -- --check` fails when
+ * this file no longer matches upstream.
+ *
  * Prices change; the table is a starting point, not a billing guarantee.
  */
 
@@ -20,6 +24,7 @@ const BUILTIN_PRICING = {
   "claude-3-5-sonnet-20241022": { input: 3, output: 15, cacheRead: 0.3, cacheWrite: 3.75 },
   "claude-fable-5": { input: 10, output: 50, cacheRead: 1, cacheWrite: 12.5 },
   "claude-fable-5-1": { input: 10, output: 50, cacheRead: 0.25, cacheWrite: 12.5 },
+  "claude-fable-5-2": { input: 8, output: 40, cacheRead: 0.2, cacheWrite: 10 },
   "claude-haiku-4-5-20251001": { input: 1, output: 5, cacheRead: 0.1, cacheWrite: 1.25 },
   "claude-haiku-5-5": { input: 0.1, output: 0.5, cacheRead: 0.01, cacheWrite: 0.125 },
   "claude-mythos-5": { input: 10, output: 50, cacheRead: 1, cacheWrite: 12.5 },
@@ -82,6 +87,8 @@ const BUILTIN_PRICING = {
   "gemini-3.7-flash": { input: 0.75, output: 3.75, cacheRead: 0.075, cacheWrite: 0 },
   "gemini-3.8-flash": { input: 0.75, output: 3.75, cacheRead: 0.075, cacheWrite: 0 },
   "gemini-4-argon": { input: 2, output: 10, cacheRead: 0.1, cacheWrite: 0 },
+  "gemini-4-carbon": { input: 2, output: 10, cacheRead: 0.1, cacheWrite: 0 },
+  "gemini-4-hydrogen": { input: 1.5, output: 7.5, cacheRead: 0.075, cacheWrite: 0 },
   "glm-4.6": { input: 0.6, output: 2.2, cacheRead: 0.11, cacheWrite: 0 },
   "glm-4.7": { input: 0.6, output: 2.2, cacheRead: 0.11, cacheWrite: 0 },
   "glm-5": { input: 1, output: 3.2, cacheRead: 0.2, cacheWrite: 0 },
@@ -153,16 +160,17 @@ const BUILTIN_PRICING = {
   "gpt-5.6-cyber": { input: 12.5, output: 75, cacheRead: 1.25, cacheWrite: 15.625 },
   "gpt-5.6-high": { input: 4, output: 20, cacheRead: 0.4, cacheWrite: 5 },
   "gpt-5.6-low": { input: 4, output: 20, cacheRead: 0.4, cacheWrite: 5 },
-  "gpt-5.6-luna": { input: 0.2, output: 1.2, cacheRead: 0.02, cacheWrite: 0.25 },
+  "gpt-5.6-luna": { input: 1, output: 6, cacheRead: 0.1, cacheWrite: 1.25 },
   "gpt-5.6-medium": { input: 4, output: 20, cacheRead: 0.4, cacheWrite: 5 },
   "gpt-5.6-minimal": { input: 4, output: 20, cacheRead: 0.4, cacheWrite: 5 },
   "gpt-5.6-sol": { input: 4, output: 20, cacheRead: 0.4, cacheWrite: 5 },
-  "gpt-5.6-terra": { input: 2, output: 12, cacheRead: 0.2, cacheWrite: 2.5 },
+  "gpt-5.6-terra": { input: 2.5, output: 15, cacheRead: 0.25, cacheWrite: 3.125 },
   "gpt-5.6-xhigh": { input: 4, output: 20, cacheRead: 0.4, cacheWrite: 5 },
   "gpt-6-astra": { input: 10, output: 50, cacheRead: 1, cacheWrite: 12.5 },
   "gpt-6-luna": { input: 0.1, output: 0.5, cacheRead: 0.01, cacheWrite: 0.125 },
   "gpt-6-sol": { input: 2, output: 10, cacheRead: 0.2, cacheWrite: 2.5 },
   "gpt-6.1-sol": { input: 2, output: 10, cacheRead: 0.1, cacheWrite: 2.5 },
+  "gpt-6.1-terra": { input: 1, output: 5, cacheRead: 0.05, cacheWrite: 1.25 },
   "grok-3": { input: 3, output: 15, cacheRead: 0.75, cacheWrite: 0 },
   "grok-3-mini": { input: 0.25, output: 0.5, cacheRead: 0.075, cacheWrite: 0 },
   "grok-4": { input: 3, output: 15, cacheRead: 0.75, cacheWrite: 0 },
@@ -174,7 +182,10 @@ const BUILTIN_PRICING = {
   "grok-4.5": { input: 2, output: 6, cacheRead: 0.3, cacheWrite: 0 },
   "grok-4.5-build": { input: 2, output: 6, cacheRead: 0.3, cacheWrite: 0 },
   "grok-4.6": { input: 2, output: 6, cacheRead: 0.5, cacheWrite: 0 },
+  "grok-4.6-build": { input: 2, output: 6, cacheRead: 0.5, cacheWrite: 0 },
   "grok-4.7": { input: 2, output: 6, cacheRead: 0.5, cacheWrite: 0 },
+  "grok-4.7-build": { input: 2, output: 6, cacheRead: 0.5, cacheWrite: 0 },
+  "grok-4.7-build-fast": { input: 4, output: 12, cacheRead: 1, cacheWrite: 0 },
   "grok-build-0.1": { input: 1, output: 2, cacheRead: 0.2, cacheWrite: 0 },
   "grok-code-fast-1": { input: 1, output: 2, cacheRead: 0.2, cacheWrite: 0 },
   "hunyuan-hy3": { input: 0.14, output: 0.56, cacheRead: 0.035, cacheWrite: 0 },
